@@ -1,0 +1,16 @@
+GEX Strat
+Copyright 2026 Fadi Hafiane
+
+The source code is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The licence does not cover the third-party data stored with the code, which stays under
+its providers' terms:
+
+  tests/fixtures/, data/raw/              CBOE delayed option quotes (cboe.com)
+  data/external/squeezemetrics_dix.csv    SqueezeMetrics public DIX / GEX history
+
+The backtest's licensed price file (data/market/prices.csv) is not distributed;
+data/market/prices.csv.provenance.json describes it.
+
+Numbers derived by this code (data/history.csv, data/backtest/trials.csv) follow the
+licence of the code.

@@ -1,0 +1,17 @@
+key,first_run_utc
+exposure | gex_low | lag1 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+exposure | gex_low | lag2 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+exposure | gex_sign | lag1 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+exposure | gex_sign | lag2 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+reversal | gex_low | lag1 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+reversal | gex_low | lag2 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+reversal | gex_sign | lag1 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+reversal | gex_sign | lag2 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+vol | gex_low | lag1 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+vol | gex_low | lag2 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+vol | gex_sign | lag1 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+vol | gex_sign | lag2 | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:12:00+00:00
+reversal | gex_low | lag1 | v2-fade-entry-day | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:19:58+00:00
+reversal | gex_low | lag2 | v2-fade-entry-day | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:19:58+00:00
+reversal | gex_sign | lag1 | v2-fade-entry-day | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:19:58+00:00
+reversal | gex_sign | lag2 | v2-fade-entry-day | vt0.1-w60-q0.25-h250-oos2024-01-01,2026-10-15T11:19:58+00:00

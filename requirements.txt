@@ -1,0 +1,10 @@
+# Versions the project is tested with (Python 3.11). The app uses recent Streamlit APIs
+# (st.metric delta_arrow, st.table hide_header, horizontal containers): do not go below.
+numpy==2.4.6
+scipy==1.17.1
+pandas==3.0.6
+plotly==7.1.0
+streamlit==1.65.0
+pytest==9.1.1
+# Time zone database: Windows has none that Python can read (zoneinfo needs it there).
+tzdata==2026.5

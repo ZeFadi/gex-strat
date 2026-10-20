@@ -1,0 +1,6 @@
+{
+  "source": "https://squeezemetrics.com/monitor/static/DIX.csv",
+  "note": "SqueezeMetrics methodology (not gex_engine); date = session of the GEX",
+  "md5": "5e07dc67dae4c3c8407ff6acbbf8d5bb",
+  "written_utc": "2026-10-15T11:06:12+00:00"
+}

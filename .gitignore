@@ -1,0 +1,16 @@
+# Environment and caches
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.streamlit/secrets.toml
+
+# Machine-specific
+data/archive.log
+
+# Licensed market data (Bloomberg): stays local, its provenance file is versioned
+data/market/prices.csv
+
+# Raw files set aside after an incident (rebuild skips them anyway)
+data/raw/*/*-corrupt.json.gz

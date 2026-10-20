@@ -1,0 +1,9 @@
+# Same bytes on every machine: text files keep LF line endings even where Git would
+# convert them (Windows core.autocrlf), so CSV checksums and diffs do not change.
+* text=auto eol=lf
+*.gz binary
+*.png binary
+*.ico binary
+# Third-party files are kept byte for byte: their provenance records the md5 of the original.
+data/external/*.csv -text
+data/market/*.csv -text

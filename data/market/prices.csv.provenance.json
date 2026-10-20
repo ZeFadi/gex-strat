@@ -1,0 +1,53 @@
+{
+  "source": "Bloomberg daily closes (BQL export of 2026-09-21; the export day itself is dropped)",
+  "bloomberg_export_date": "2026-09-21",
+  "series": {
+    "spx_open": {
+      "file": "ohlc__px_open.csv",
+      "ticker": "SPX Index",
+      "md5": "832bfd854b57288c8d2b35c633ed3a8a"
+    },
+    "spx_high": {
+      "file": "ohlc__px_high.csv",
+      "ticker": "SPX Index",
+      "md5": "85215d6d76614a424cf5385ef9d2a68d"
+    },
+    "spx_low": {
+      "file": "ohlc__px_low.csv",
+      "ticker": "SPX Index",
+      "md5": "5e60974e7f5a61e2edc700c8d63f4ca4"
+    },
+    "spx_close": {
+      "file": "market__px_last.csv",
+      "ticker": "SPX Index",
+      "md5": "a9503d83e36de8a68b49f15999592751"
+    },
+    "spxt": {
+      "file": "tr_index__px_last.csv",
+      "ticker": "SPXT Index",
+      "md5": "538bb77fb8d180cd6053b1fac0f45688"
+    },
+    "us3m_pct": {
+      "file": "market__px_last.csv",
+      "ticker": "USGG3M Index",
+      "md5": "a9503d83e36de8a68b49f15999592751"
+    },
+    "vix": {
+      "file": "vol__px_last.csv",
+      "ticker": "VIX Index",
+      "md5": "cc9d35fbcab0370627455abd7ae81cc1"
+    },
+    "ux1": {
+      "file": "vol__px_last.csv",
+      "ticker": "UX1 Index",
+      "md5": "cc9d35fbcab0370627455abd7ae81cc1"
+    },
+    "ux2": {
+      "file": "vol__px_last.csv",
+      "ticker": "UX2 Index",
+      "md5": "cc9d35fbcab0370627455abd7ae81cc1"
+    }
+  },
+  "md5": "1b27ce4317be7b6271a69ca1ba5c3564",
+  "written_utc": "2026-10-15T11:06:16+00:00"
+}
