@@ -39,8 +39,29 @@ def refresh() -> None:
     _fetch_state.clear()
 
 
-def state(symbol: str) -> tuple[surface.MarketState | None, str | None]:
-    """(market state, error): the fresh state, or the last good one and why the refresh failed."""
+LIVE = "live"
+
+
+def archived_closes(symbol: str) -> list[str]:
+    """Dates of the closing chains archived for `symbol` (data/raw), newest first."""
+    folder = config.DATA_DIR / "raw" / symbol
+    return sorted((p.name[:10] for p in folder.glob("????-??-??.json.gz")), reverse=True)
+
+
+@st.cache_data(max_entries=16, show_spinner=False)
+def _load_close(symbol: str, day: str) -> surface.MarketState:
+    """An archived close, priced as it was that evening (replay: every page shows that day)."""
+    return surface.build(data.load(config.DATA_DIR / "raw" / symbol / f"{day}.json.gz", symbol))
+
+
+def state(symbol: str, close: str = LIVE) -> tuple[surface.MarketState | None, str | None]:
+    """(market state, error): an archived close if `close` is a date; live, the fresh state,
+    or the last good one and why the refresh failed."""
+    if close != LIVE:
+        try:
+            return _load_close(symbol, close), None
+        except Exception as exc:
+            return None, f"{type(exc).__name__}: {exc}"
     try:
         s = _fetch_state(symbol)
         _last_good()[symbol] = s
@@ -158,14 +179,16 @@ class Context:
 def context() -> Context:
     """Read the sidebar selection, load its state, warn if stale; stop the page if no data."""
     symbol = st.session_state.get("symbol") or "SPX"
-    market, error = state(symbol)
+    close = st.session_state.get("close", LIVE)
+    close = close if close in archived_closes(symbol) else LIVE
+    market, error = state(symbol, close)
     if market is None:
         st.error(f"{symbol}: no data available. {error or ''}", icon=":material/error:")
         st.stop()
     if error:
         st.warning(f"Last refresh failed, showing the data of {market.asof:%d %b %H:%M} ET. {error}",
                    icon=":material/cloud_off:")
-    stale = surface.stale_message(market.asof)
+    stale = surface.stale_message(market.asof) if close == LIVE else None
     if stale:
         st.warning(stale, icon=":material/schedule:")
     expiry = st.session_state.get("expiry")

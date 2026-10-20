@@ -23,9 +23,23 @@ def _close_local() -> datetime:
 
 st.set_page_config(page_title="GEX monitor", page_icon=":material/monitoring:", layout="wide")
 
+# A link can open the app on a given underlying and archived close, so a reading can be
+# reproduced: http://localhost:8501/study?symbol=SPX&close=2026-10-16
+params = st.query_params
+if "symbol" not in st.session_state:
+    st.session_state["symbol"] = params.get("symbol") if params.get("symbol") in config.SYMBOLS else "SPX"
+
 with st.sidebar:
-    symbol = st.segmented_control("Underlying", config.SYMBOLS, key="symbol", default="SPX") or "SPX"
-    market, _ = ui.state(symbol)
+    symbol = st.segmented_control("Underlying", config.SYMBOLS, key="symbol") or "SPX"
+    closes = ui.archived_closes(symbol)
+    if "close" not in st.session_state:
+        st.session_state["close"] = params.get("close") if params.get("close") in closes else ui.LIVE
+    if st.session_state["close"] not in [ui.LIVE, *closes]:
+        st.session_state["close"] = ui.LIVE
+    close = st.selectbox("Data", [ui.LIVE, *closes], key="close",
+                         format_func=lambda c: "Live (CBOE delayed)" if c == ui.LIVE
+                         else f"Archived close {date.fromisoformat(c):%a %d %b %Y}")
+    market, _ = ui.state(symbol, close)
     if market is not None:
         options = ui.expiry_options(market)
         if st.session_state.get("expiry") not in options:    # first run, or the date has settled
@@ -33,10 +47,12 @@ with st.sidebar:
         st.selectbox("Expiry", options, key="expiry", format_func=lambda v: ui.expiry_label(v, options))
         st.selectbox("Strike window", (0.03, 0.06, 0.10, 0.20), index=1, key="window",
                      format_func=lambda w: f"±{100 * w:.0f}% of spot")
-        st.caption(f"CBOE delayed quotes · as of {market.asof:%a %d %b %H:%M:%S} ET  \n"
+        st.caption(("CBOE delayed quotes" if close == ui.LIVE else "Archived CBOE closing file")
+                   + f" · as of {market.asof:%a %d %b %H:%M:%S} ET  \n"
                    f"The close is final from 16:15 ET ({_close_local():%H:%M} on this machine's clock).  \n"
                    "Convention: dealers long calls, short puts.")
-    if st.button("Refresh data", icon=":material/refresh:", help="Download the current CBOE file now"):
+    if close == ui.LIVE and st.button("Refresh data", icon=":material/refresh:",
+                                      help="Download the current CBOE file now"):
         ui.refresh()
         st.rerun()
 

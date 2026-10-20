@@ -31,7 +31,7 @@ py -3.11 -m venv .venv
 
 With [uv](https://docs.astral.sh/uv/), `uv venv --python 3.11 .venv` then `uv pip install --python .venv/bin/python -r requirements.txt` (`.venv\Scripts\python` on Windows) does the same, faster.
 
-The source is CBOE's delayed chain: quotes are 15 minutes old in session; outside it, the data is the previous close. The app is meant to be read at the end of the day (the close is final from 16:15 New York): it does not poll, keeps a download for 10 minutes, and the sidebar's Refresh button fetches the current file. The sidebar states the as-of time and the local time of the close.
+The source is CBOE's delayed chain: quotes are 15 minutes old in session; outside it, the data is the previous close. The app is meant to be read at the end of the day (the close is final from 16:15 New York): it does not poll, keeps a download for 10 minutes, and the sidebar's Refresh button fetches the current file. The sidebar states the as-of time and the local time of the close. Its Data menu replays any archived close on every page, and a link opens one directly, for instance `http://localhost:8501/scenarios?symbol=SPX&close=2026-10-16`: a reading can be reproduced later, by anyone.
 
 ## Pages
 

@@ -54,7 +54,7 @@ ui.chart(charts.history(own), "Spot and zero gamma at each close")
 
 if ctx.symbol == "SPX" and (config.DATA_DIR / backtest.SQUEEZE_FILE).exists():
     agree = backtest.compare_gex(own.set_index(pd.to_datetime(own["date"]))["net_gex"], backtest.gex_series())
-    if agree["sessions"]:
+    if agree["sessions"] >= 20:                 # fewer common sessions say nothing about agreement
         with st.expander(f"Our net GEX against SqueezeMetrics' (theirs drives the backtest): same sign on "
                          f"{agree['same_sign']:.0%} of sessions, rank correlation {agree['corr_ranks']:.2f}"):
             ui.kv({"Common sessions": f"{agree['sessions']} ({agree['first']:%Y-%m-%d} to {agree['last']:%Y-%m-%d})",

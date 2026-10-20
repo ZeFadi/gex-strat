@@ -108,3 +108,15 @@ def test_study_page_reads_either_history(offline, monkeypatch, source):
     text = " ".join(m.value for m in at.markdown)
     assert ("Garman-Klass" if source == "CBOE archive" else "close-to-close") in text
     assert ("Walls of t" in text) == (source == "CBOE archive")
+
+
+def test_an_archived_close_replays_on_every_page(offline):
+    """The sidebar's Data menu (or ?close=) shows an archived evening instead of the live file."""
+    day = "2026-10-12"
+    if not (config.DATA_DIR / "raw" / "SPX" / f"{day}.json.gz").exists():
+        pytest.skip("no archived close in this checkout")
+    at = AppTest.from_file(APP)
+    at.session_state["close"] = day
+    _run(at)
+    zero_gamma = {m.label: m.value for m in at.metric}["Zero gamma"]
+    assert zero_gamma.startswith("7,753.") and offline.count("SPX") == 0     # no download: the file was replayed
