@@ -48,8 +48,8 @@ Fallbacks, in order: in-the-money mid (same threshold), vendor IV, then linear i
 
 | Source | Share of OI |
 |---|---|
-| Mid | 90.4% |
-| Vendor IV | 8.9% (mostly far wings and long-dated LEAPS with one-sided quotes) |
+| Mid | 90.9% |
+| Vendor IV | 8.5% (mostly far wings and long-dated LEAPS with one-sided quotes) |
 | Smile interpolation | 0.7% |
 | Unpriced | 0% |
 
@@ -59,7 +59,7 @@ Fallbacks, in order: in-the-money mid (same threshold), vendor IV, then linear i
 * CBOE's IV is tied to its own clock and forward. On the AM-settled SPX of 2026-10-16, CBOE stops time at the last trading day's close and we run it to Friday's SOQ, which explains a 1.2 vol-point gap (ours lower) on that series only.
 * Gamma at spot depends on total variance $\sigma^2 T$, which the price fixes. Implying our own $\sigma$ under our own $T$ therefore makes gamma insensitive to the time convention.
 
-**Quote bounds.** The same out-of-the-money rule applied to the bid and to the ask gives $\sigma_{bid} \le \sigma \le \sigma_{ask}$: the vols the quotes cannot tell apart from the mid. Near the money on SPX, the median width is 0.09 vol point. Where the vol did not come from a quote, both bounds equal $\sigma$.
+**Quote bounds.** The same out-of-the-money rule applied to the bid and to the ask gives $\sigma_{bid} \le \sigma \le \sigma_{ask}$: the vols the quotes cannot tell apart from the mid. Near the money on SPX, the median width is 0.08 vol point. Where the vol did not come from a quote, both bounds equal $\sigma$.
 
 **ATM vol at a maturity** is interpolated linearly in total variance $\sigma_{ATM}^2 T$ across series, flat outside the listed maturities. The ATM vol of a series is the vol of the strike nearest its forward. The **one-day move** is $S^* \sigma_{ATM}(1/365) \sqrt{1/365}$: about ±30 points on SPX on the fixture.
 
@@ -119,7 +119,7 @@ The prototype's `share_gex` $= \Gamma\, OI\, m\, S$ was labeled "shares per \$1"
   | Without expiries > 1 year | long-dated OI with stale or one-sided quotes |
   | Without the front expiry | how much one expiry (often 0DTE) drives the level |
 
-  The band is the range of the variants' zero gammas. The regime is **indeterminate** when the band contains spot, or when the variants disagree on the sign of GEX at spot. On the SPX fixture the band is 7,733 to 7,754, with spot at 7,801: the front expiry moves the level by 19 points, and quote precision by less than 1.
+  The band is the range of the variants' zero gammas. The regime is **indeterminate** when the band contains spot, or when the variants disagree on the sign of GEX at spot. On the SPX fixture the band is 7,733 to 7,753, with spot at 7,803: the front expiry moves the level by 19 points, and quote precision by less than 1.
 
 ## 7. Front expiry (0DTE)
 
@@ -227,7 +227,7 @@ On the same quotes, the CBOE provider and this one give the same book (net GEX w
 
 **Import** (`study.import_eod`). The whole table is recomputed from the files. The price change is the close minus the previous file's close; a day that fails to price breaks the chain, so two sessions around it are never paired. The vendor has no underlying open, high or low. The study therefore measures close-to-close vol (the next session, and today's as a control), and it leaves the range and the walls empty rather than wrong.
 
-**First results, free sample** (2022 H2, 127 sessions; one year, a falling market).
+**First results, free sample** (2022 H2, 127 sessions; six months of a falling market).
 * **Our SPX GEX against SqueezeMetrics'.**
   * Levels correlate at 0.95, ranks at 0.96 and daily changes at 0.88. The two describe the same book.
   * Their signs agree on only 68% of sessions: ours is negative on 69% of them, theirs on 37%. Our zero sits lower, most likely because the long-calls / short-puts convention counts every put as short. Their sign is therefore not ours.
@@ -271,7 +271,7 @@ Run the full test suite (offline) with `pytest`.
 * **The dealer convention is an assumption.** It is reasonable for index options, but fails where customers buy calls (single stocks, squeezes).
 * **European pricing on American ETF options** (SPY, QQQ, IWM). Vols are read from out-of-the-money prices, where the early-exercise premium is negligible. Deep in-the-money puts carry negligible gamma.
 * **Sticky strike, frozen time.** The profile answers "this book re-marked at another spot now", not "the book after the market gets there". The band shows how much the sticky-moneyness alternative moves the zero gamma.
-* **The archived close carries the open interest of the START of its session.** CBOE republishes the file before the next open with the open interest updated overnight by the OCC (positions at the END of the session), the quotes unchanged: on 2026-10-19 the SPX net GEX was −27.7bn with the evening file and −35.0bn with the morning one. The archive keeps the evening convention; a pre-open snapshot, fresher for forecasting the next session, is a candidate addition. Known exception: the raw files of 2026-10-19 for SPX, NDX, RUT, XSP, QQQ and IWM were overwritten by their morning versions before the no-overwrite rule existed, while their history rows come from the evening files; a `rebuild` would switch those six rows to the morning open interest. The SPY evening file of that day was lost (replaced by a pre-open file, set aside as `2026-10-19_preopen-corrupt.json.gz` on the author's machine, not in the repository); its history row is intact, and `rebuild` keeps it.
+* **The archived close carries the open interest of the START of its session.** CBOE republishes the file before the next open with the open interest updated overnight by the OCC (positions at the END of the session), the quotes unchanged: on 2026-10-19 the SPX net GEX was −27.7bn with the evening file and −35.0bn with the morning one. The archive keeps the evening convention; since 2026-10-20 the SPX pre-open file is archived beside it (section 10) to measure which one predicts the next session better. Known exception: the raw files of 2026-10-19 for SPX, NDX, RUT, XSP, QQQ and IWM were overwritten by their morning versions before the no-overwrite rule existed, while their history rows come from the evening files; a `rebuild` would switch those six rows to the morning open interest. The SPY evening file of that day was lost (replaced by a pre-open file, set aside as `2026-10-19_preopen-corrupt.json.gz` on the author's machine, not in the repository); its history row is intact, and `rebuild` keeps it.
 * **Holidays are not modelled** in the "next close" scenario or in the frozen-source flag.
 * **Early-close sessions** (13:00 New York): the 15:59 rule archives nothing those days. One pair is lost per early close.
 * **A constant $r$ (4%) is used for discounting only**; its effect on gamma is second order because the vol is implied with the same $DF$.
@@ -285,12 +285,12 @@ Run the full test suite (offline) with `pytest`.
 
 | Input | Source | Note |
 |---|---|---|
-| GEX regime | SqueezeMetrics public SPX GEX, daily since 2011 (`data/external/`) | their methodology, not ours: on our 3 archived days the two disagree in sign once (2026-10-14). The backtest therefore tests the market's GEX, not `gex_engine`. `backtest.gex_series(source="own")` swaps in our history when it is long enough |
+| GEX regime | SqueezeMetrics public SPX GEX, daily since 2011 (`data/external/`) | their methodology, not ours: on 127 sessions of 2022 H2 the ranks of the two correlate at 0.96 but their signs agree on 68% only (section 10.1). The backtest therefore tests the market's GEX, not `gex_engine`. `backtest.gex_series(source="own")` swaps in our history when it is long enough |
 | ES | SPXT total return minus the 3-month US yield (act/360), Bloomberg daily closes (`data/market/prices.csv`, licensed, not in the repository; its provenance file is) | excess return of a fully collateralized future; roll and basis ignored |
 | UX1 | front VIX future, Bloomberg generic, chained across rolls | the generic rolls on the expiry session up to Nov-2014, the session after from Dec-2014 (identified on the data: the curve UX1..UX3 matches yesterday's UX2..UX4) |
 | Controls | VIX close; Parkinson vol from SPX high and low | the SPX open is stale before 2016 (equal to the previous close on 30% of 2012 sessions) and is not used |
 
-Sample: the sessions where every series exists, 2012-01-04 to 2026-09-18 (the Bloomberg export day is dropped: intraday values). SqueezeMetrics' price column matches the Bloomberg close of the same session on 3,861 of 3,870 days (the rest within 0.04%): the GEX is dated by its session, not shifted.
+Sample: the sessions where every series exists, 2012-01-04 to 2026-09-18 (the Bloomberg export day is dropped: intraday values). SqueezeMetrics' price column matches the Bloomberg close of the same session to 1 bp on 3,691 of 3,699 sessions (the rest within 0.04%): the GEX is dated by its session, not shifted.
 
 **Regimes** (known at the close of t), the trials:
 
@@ -299,7 +299,7 @@ Sample: the sessions where every series exists, 2012-01-04 to 2026-09-18 (the Bl
 | `gex_sign` | GEX < 0 |
 | `gex_low` | GEX below the 25th percentile of its own past (expanding, ≥ 250 sessions, threshold at t−1) |
 
-GEX is negative on only 9% of sessions (41% in 2022, 0% in 2024), so `gex_sign` hardly differs from always-positive out of sample; `gex_low` is the variant that keeps two regimes in every period. The number of regime **episodes**, not days, is reported: a few long episodes are a few independent observations.
+GEX is negative on only 9% of sessions (41% in 2022, 0.4% in 2024), so `gex_sign` hardly differs from always-positive out of sample; `gex_low` is the variant that keeps two regimes in every period. The number of regime **episodes**, not days, is reported: a few long episodes are a few independent observations.
 
 **Rules.**
 
@@ -309,7 +309,7 @@ GEX is negative on only 9% of sessions (41% in 2022, 0% in 2024), so `gex_sign` 
 | exposure | ES | r_t: long in positive gamma, short in negative gamma |
 | vol | UX1 | −r_t: short the VIX future in positive gamma, long in negative gamma |
 
-**Benchmarks** (not trials): each rule with r_t = +1 always (does the regime add anything?) and with a VIX filter, r_t = −1 when VIX is above its expanding median (does GEX add anything beyond the level of volatility, with which it is correlated: 0.33 between "GEX > 0" and "VIX below median").
+**Benchmarks** (not trials): each rule with r_t = +1 always (does the regime add anything?) and with a VIX filter, r_t = −1 when VIX is above its expanding median (does GEX add anything beyond the level of volatility, with which it is correlated: 0.27 between "GEX > 0" and "VIX below its expanding median").
 
 **Execution and sizing.**
 * The position decided at the close of t earns the return of session t + lag. **lag 2** (primary): entered at the close of t+1, robust to the unknown publication time of the GEX. **lag 1**: entered right after the close of t, an optimistic bound (ES trades until 17:00 New York). An edge that exists only at lag 1 is a timing artefact.
@@ -339,7 +339,7 @@ Primary execution (close t+1), costs ×1, full sample 2012-2026, net Sharpe [5%,
 | exposure | 0.35 [−0.07, 0.79] | 0.10 [−0.33, 0.55] | **0.76** | −0.31 |
 | vol | 0.05 [−0.37, 0.53] | −0.36 [−0.75, 0.11] | **0.34** | −0.66 |
 
-* **No rule beats its always-on benchmark.** Deflated Sharpe ratios (N = 16) are between 0% and 10%, against a usual bar of 95%. At the optimistic execution (close t), `exposure | gex_sign` rises to 0.57 but stays below always-long (0.79).
+* **No rule beats its always-on benchmark.** At the primary execution, deflated Sharpe ratios (N = 16) are between 0% and 10%, against a usual bar of 95%; at the optimistic one the highest is 33% (`exposure | gex_sign`). At the optimistic execution (close t), `exposure | gex_sign` rises to 0.57 but stays below always-long (0.79).
 * **The regime timing IS informative, in the opposite direction to the rules.** The two-sided placebo (regime shifted in time) puts the actual Sharpe below 96-100% of the shifted ones for reversal (p_worse 0.000 and 0.038), exposure | gex_sign (0.022) and vol | gex_low (0.050). After a negative-gamma close, the next session tends to REVERSE the move and the market to rebound. Following the move, going short, or buying vol then all lose. The deep-search report's thesis ("negative gamma = momentum") is rejected at the daily horizon on this data. Intraday momentum is not tested.
 * **A rule that takes the other side would be post-hoc.** It was chosen after seeing these results. It would have to be registered as a new trial, and the out-of-sample period can't confirm it (19 negative-GEX sessions in 11 episodes since 2024). It is not reported as profitable.
 * **The vol mechanism is robust.** Next-session Parkinson vol after a negative-GEX close: +2.7 vol points (t = 4.8) with VIX and today's vol; **+2.1 (t = 4.1)** after adding HAR and leverage controls. After a low-gamma close: +1.9 (t = 6.1), then **+1.4 (t = 5.0)**. The VIX-filter dummy adds nothing (−0.4, t = −1.3). GEX carries information about next-day realized volatility that the level and memory of volatility do not. These rules do not monetize it.

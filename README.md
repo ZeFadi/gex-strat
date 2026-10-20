@@ -17,7 +17,7 @@ macOS / Linux:
 ```bash
 python3.11 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python cli.py check                  # interpreter, packages, network to CBOE, data, schedule
-.venv/bin/python -m pytest                     # offline tests, ~15 s
+.venv/bin/python -m pytest                     # offline tests, about 40 s
 .venv/bin/python -m streamlit run app.py       # http://localhost:8501
 .venv/bin/python cli.py install                # archiving machine only: the closing chains every weekday
 ```
@@ -45,7 +45,7 @@ The sidebar sets the underlying, the expiry view (all, front, or one date) and t
 |---|---|
 | **Monitor** | Where are the levels? Net GEX and regime, zero gamma with its assumption band, walls (in % and one-day σ), 1-day move, VEX, CHEX, trapdoor warning, GEX by strike, GEX(S) profile, front expiry and its GEX projected to the close, data quality, strike table. |
 | **Scenarios** | What must dealers trade if IV, spot or time moves? Full re-pricing, in $ and in ES / NQ / RTY contracts (shares for ETFs). Zero gamma under each alternative assumption. VEX and CHEX by strike. |
-| **Study** | Has the regime predicted next-day realized vol, range and wall behaviour on the archived history? Statistics appear once 30 consecutive day pairs are archived. |
+| **Study** | Has the regime predicted next-day realized vol, range and wall behaviour? On the daily CBOE archive (statistics from 30 consecutive day pairs) or on end-of-day vendor history; our net GEX against SqueezeMetrics'. |
 | **Flow** | Given a file of today's option trades: flow-signed GEX (Lee-Ready, EMO or BVC) against the structural view, and the pressure on each wall. |
 | **Backtest** | Does trading the gamma regime pay, net of costs, against the same rules without it and against a VIX filter? Pre-registered rules on ES and VIX futures, with deflated Sharpe, bootstrap intervals, placebo and the vol-prediction mechanism. Needs the licensed price file `data/market/prices.csv`, not in the repository (see Data). |
 
@@ -76,8 +76,8 @@ CBOE JSON ──> data.py ──> Chain (normalized contracts, as-of time)
                               │
           ┌───────────────────┼─────────────────────┐
      exposures              flow                  study
-     GEX / VEX / CHEX,      trade-signed          daily archive (data/history.csv),
-     levels, 0DTE,          dealer positions      next-day regime study
+     GEX / VEX / CHEX,      trade-signed          daily archive (data/history.csv), end-of-day
+     levels, 0DTE,          dealer positions      history (history_eod.csv), next-day regime study
      scenarios                                         │
           │                                       backtest (+ external GEX and prices)
      snapshot.build: one payload per view, with its data-quality report
@@ -119,7 +119,7 @@ Two rules hold everywhere:
 | summary history of the archive | `data/history.csv` | the archive; `cli.py rebuild` recomputes it from `data/raw/` |
 | end-of-day option history (historicaldata.net: free sample 2022 H2, SPX and SPY; paid archive since 2002, same layout) | `data/vendor/historicaldata/day_by_date/` | **not in the repository** (licence: no redistribution): `cli.py eod-sample` |
 | summary history of the end-of-day files, same row as the archive's | `data/history_eod.csv` | `cli.py eod-import` (derived numbers, versioned) |
-| backtest trials log (append-only) | `data/backtest/trials.csv` | each new backtest configuration |
+| backtest and forecast trials logs (append-only) | `data/backtest/trials.csv`, `data/backtest/forecast_trials.csv` | each new configuration, at its first run |
 | frozen CBOE files for the tests | `tests/fixtures/` | never (tests depend on them) |
 | backtest prices (SPX OHLC, S&P 500 total return, 3-month rate, VIX, VIX futures UX1/UX2) | `data/market/prices.csv`: **not in the repository** (Bloomberg data); its provenance file, versioned, lists the tickers, columns and dates | export from a terminal, then `cli.py backtest-data --prices FILE` |
 | SqueezeMetrics public GEX history | `data/external/` | `cli.py backtest-data --squeeze` |
@@ -158,11 +158,11 @@ The archive retries network errors three times; scheduled runs (`--log`) append 
 | `test_pricing.py` | Greeks equal finite differences of the price; parity; implied-vol round trips |
 | `test_surface.py` | known forwards and vols recovered exactly on a synthetic chain; clock, AM/PM settlement, DST; CBOE consistency at the close and in session (0DTE gamma within 2% of CBOE); the end-of-day provider gives the same book as CBOE on the same quotes, nominal Saturday expiries settle on Friday |
 | `test_exposures.py` | net GEX = strike bars = profile at spot; zero gamma equals a closed form; band; projection; tiny scenario shocks reproduce GEX and VEX; cash vs physical settlement |
-| `test_study.py` | archive rules; Newey-West formula; a simulated effect is found, no look-ahead, no glued days; end-of-day import never bridges a failed day; close-only histories fall back to close-to-close |
+| `test_study.py` | archive rules, pre-open files kept raw; Newey-West formula; a simulated effect is found, no look-ahead, no glued days; implied vol on the realized basis; end-of-day import never bridges a failed day; close-only histories fall back to close-to-close; rewriting the history changes no byte |
 | `test_flow.py` | Lee-Ready, EMO, BVC; inventory; flow GEX = structural GEX for the same positions |
-| `test_backtest.py` | a perfect-foresight signal pays only at the right lag; no look-ahead in regimes and sizing; costs; VIX futures roll; deflated Sharpe; append-only trials log |
-| `test_app.py` | every page renders; one download serves every view; stale-source warning |
-| `test_cli.py` | schedule local times in Paris, London, New York, Tokyo, Los Angeles; the evening run is after the close every day of the year; launchd, Task Scheduler and cron jobs; scheduled runs log |
+| `test_backtest.py` | a perfect-foresight signal pays only at the right lag; no look-ahead in regimes and sizing; costs; VIX futures roll; deflated Sharpe; append-only trials log, the GEX source in each key; forecast trial: no look-ahead, a simulated effect found, none found without it |
+| `test_app.py` | every page renders; one download serves every view; stale-source warning; an archived close replays without download; the Study page reads either history |
+| `test_cli.py` | schedule local times in Paris, London, New York, Tokyo, Los Angeles; every day of the year the evening run falls after the close and the pre-open run before the open; launchd, Task Scheduler and cron jobs; scheduled runs log |
 
 ## Layout
 
