@@ -187,23 +187,23 @@ def history(hist, height: int = 360) -> go.Figure:
                     line=dict(color=INK, width=1.5, dash="dash"), marker=dict(size=6))
     fig.add_scatter(x=hist["date"], y=hist["spot"], mode="lines+markers", name="Spot",
                     line=dict(color=INK, width=2), marker=dict(size=6))
-    _layout(fig, "Spot and zero gamma at each archived close", "shaded: zero gamma across assumptions", height)
+    _layout(fig, "Spot and zero gamma at each close", "shaded: zero gamma across assumptions", height)
     fig.update_layout(showlegend=True)
     fig.update_xaxes(tickformat=None, type="category")
     fig.update_yaxes(tickformat=",.0f")
     return fig
 
 
-def study_scatter(d, height: int = 360) -> go.Figure:
+def study_scatter(d, y: str = "next_rv_gk", measure: str = "Garman-Klass", height: int = 360) -> go.Figure:
     """Next-day realized vol against today's net GEX z-score, coloured by regime."""
     fig = go.Figure()
     for flag, name, color in ((1.0, "Positive gamma", POS), (-1.0, "Negative gamma", NEG), (0.0, "Indeterminate", MUTED)):
         sub = d.loc[d["regime"] == flag]
-        fig.add_scatter(x=sub["gex_z"], y=sub["next_rv_gk"], mode="markers", name=name,
+        fig.add_scatter(x=sub["gex_z"], y=sub[y], mode="markers", name=name,
                         marker=dict(size=8, color=color, line=dict(color=SURFACE, width=1)),
                         customdata=sub["date"],
                         hovertemplate="%{customdata}<br>GEX z %{x:.2f}<br>next-day RV %{y:.1f}%<extra></extra>")
-    _layout(fig, "Next-day realized vol vs net GEX z-score", "Garman-Klass, annualized % · z-score expanding, no look-ahead", height)
+    _layout(fig, "Next-day realized vol vs net GEX z-score", f"{measure}, annualized % · z-score expanding, no look-ahead", height)
     fig.update_layout(showlegend=True)
     fig.update_xaxes(tickformat=".1f", title_text="net GEX z-score at t")
     fig.update_yaxes(title_text="realized vol t+1, %")

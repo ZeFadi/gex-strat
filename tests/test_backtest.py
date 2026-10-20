@@ -188,3 +188,14 @@ def test_forecast_finds_a_simulated_gex_effect(tmp_path):
 def test_forecast_finds_nothing_without_an_effect(tmp_path):
     res = backtest.forecast_test(_vol_world(effect=0.0, seed=4), data_dir=tmp_path)
     assert not res["passed"]
+
+
+def test_another_gex_source_is_a_new_trial(tmp_path):
+    """Re-running the same rules on our own GEX is new trials; the default source keeps the logged keys."""
+    t = pd.DataFrame({"strategy": ["exposure | gex_sign"], "lag": [2], "trial": [True], "sample": ["full"]})
+    d = _data()
+    assert backtest.register_trials(t, tmp_path, backtest._source_tag(d)) == 1
+    d.attrs["gex_source"] = "eod"
+    assert backtest.register_trials(t, tmp_path, backtest._source_tag(d)) == 2
+    keys = pd.read_csv(tmp_path / backtest.TRIALS_FILE)["key"]
+    assert keys.str.endswith("| gex=eod").sum() == 1 and "gex=" not in keys.iloc[0]

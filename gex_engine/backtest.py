@@ -8,7 +8,9 @@ Inputs are the frozen files written by `cli.py backtest-data`:
 
 * data/market/prices.csv: Bloomberg closes (SPX OHLC, SPXT, US 3M yield, VIX, UX1, UX2);
 * data/external/squeezemetrics_dix.csv: SqueezeMetrics' public SPX GEX; or our own
-  data/history.csv once it is long enough (`gex_series(source="own")`).
+  data/history.csv once it is long enough (`gex_series(source="own")`), or the history rebuilt
+  from end-of-day vendor files (`source="eod"`, data/history_eod.csv): with the paid archive
+  that is our GEX since 2002, and `dataset(source="eod")` runs every trial on it.
 
 Return conventions, all EXCESS returns of a fully collateralized position, one per session,
 from the previous close to this close:
@@ -83,6 +85,7 @@ from scipy.stats import norm
 
 from . import config, stats
 from .stats import newey_west_ols
+from .study import EOD_HISTORY_FILE, HISTORY_FILE
 
 
 # --------------------------------------------------------------------------- market data
@@ -146,26 +149,49 @@ def parkinson_vol(prices: pd.DataFrame) -> pd.Series:
 
 
 def gex_series(source: str = "squeezemetrics", data_dir: Path = config.DATA_DIR, symbol: str = "SPX") -> pd.Series:
-    """Daily net GEX dated by its session: SqueezeMetrics' (default) or ours (data/history.csv).
+    """Daily net GEX dated by its session: SqueezeMetrics' (default), or ours from the CBOE
+    archive ("own", data/history.csv) or from end-of-day vendor files ("eod", history_eod.csv).
 
-    The two are not on the same scale (different methodology and units); strategies only
-    use their sign or their rank in their own history.
+    Theirs and ours are not on the same scale (different methodology and units); strategies
+    only use the sign or the rank of a series in its own history.
     """
     if source == "squeezemetrics":
         d = pd.read_csv(Path(data_dir) / SQUEEZE_FILE, index_col="date", parse_dates=True)
         return d["gex"].rename("gex")
-    if source == "own":
-        h = pd.read_csv(Path(data_dir) / "history.csv", parse_dates=["date"])
+    files = {"own": HISTORY_FILE, "eod": EOD_HISTORY_FILE}
+    if source in files:
+        h = pd.read_csv(Path(data_dir) / files[source], parse_dates=["date"])
         return h.loc[h["symbol"] == symbol].set_index("date")["net_gex"].rename("gex")
     raise ValueError(f"unknown GEX source {source!r}")
 
 
+def compare_gex(ours: pd.Series, theirs: pd.Series) -> dict:
+    """How two daily GEX series agree on their common sessions: sign, levels, ranks, changes."""
+    j = pd.concat([ours.rename("ours"), theirs.rename("theirs")], axis=1, join="inner").dropna()
+    return {"sessions": len(j), "first": j.index.min(), "last": j.index.max(),
+            "same_sign": float((np.sign(j["ours"]) == np.sign(j["theirs"])).mean()),
+            "negative_ours": float((j["ours"] < 0).mean()), "negative_theirs": float((j["theirs"] < 0).mean()),
+            "corr_levels": float(j["ours"].corr(j["theirs"])),
+            "corr_ranks": float(j["ours"].corr(j["theirs"], method="spearman")),
+            "corr_daily_changes": float(j["ours"].diff().corr(j["theirs"].diff()))}
+
+
 def dataset(source: str = "squeezemetrics", data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
-    """Everything the backtest reads, on one calendar: returns, vol, GEX, VIX."""
+    """Everything the backtest reads, on one calendar: returns, vol, GEX, VIX.
+
+    The GEX source travels with the table (`attrs["gex_source"]`): it is part of every trial key.
+    """
     p = load_prices(data_dir)
     d = pd.concat([es_returns(p), ux1_returns(p), parkinson_vol(p), p[["vix", "ux1", "spx_close"]]
-                   .rename(columns={"ux1": "ux1_price"}), gex_series(source, data_dir)], axis=1, sort=True)
-    return d.dropna()
+                   .rename(columns={"ux1": "ux1_price"}), gex_series(source, data_dir)], axis=1, sort=True).dropna()
+    d.attrs["gex_source"] = source
+    return d
+
+
+def _source_tag(d: pd.DataFrame) -> str:
+    """Suffix of the trial keys for a non-default GEX source (the default keeps the keys logged so far)."""
+    source = d.attrs.get("gex_source", "squeezemetrics")
+    return "" if source == "squeezemetrics" else f" | gex={source}"
 
 
 # --------------------------------------------------------------------------- rules and report
@@ -321,7 +347,7 @@ def report(d: pd.DataFrame, cost_mult: float = 1.0, data_dir: Path = config.DATA
                         trial_sr.append(s["sharpe"])
                 rows.append(s)
     table = pd.DataFrame(rows)
-    n_trials = register_trials(table, data_dir)
+    n_trials = register_trials(table, data_dir, _source_tag(d))
     full = table["sample"] == "full"
     table.loc[full, "deflated_sharpe"] = [
         stats.deflated_sharpe(r.sharpe, n_trials, r.days, r.skew, r.kurtosis, trial_sr) if r.trial else np.nan
@@ -345,17 +371,18 @@ def report(d: pd.DataFrame, cost_mult: float = 1.0, data_dir: Path = config.DATA
             "start": d.index.min(), "end": d.index.max()}
 
 
-def register_trials(table: pd.DataFrame, data_dir: Path = config.DATA_DIR) -> int:
+def register_trials(table: pd.DataFrame, data_dir: Path = config.DATA_DIR, tag: str = "") -> int:
     """Append-only log of every trial ever evaluated; its row count is N of the deflated Sharpe.
 
-    A trial is (rule, regime, lag, cost multiplier, configuration). Benchmarks are not trials.
+    A trial is (rule, regime, lag, cost multiplier, configuration, GEX source: `tag`). Benchmarks
+    are not trials.
     Re-running the same configuration does not add rows.
     """
     cfg = (f"vt{config.VOL_TARGET}-w{config.VOL_WINDOW}-q{config.LOW_GAMMA_QUANTILE}"
            f"-h{config.REGIME_MIN_HISTORY}-oos{config.OOS_START}")
     trials = table.loc[table["trial"] & (table["sample"] == "full")]
     keys = {f"{t.strategy} | lag{t.lag} | {RULE_VERSION.get(t.strategy.split(' | ')[0], 'v1')} | {cfg}"
-            .replace(" | v1 | ", " | ") for t in trials.itertuples()}
+            .replace(" | v1 | ", " | ") + tag for t in trials.itertuples()}
     return _append_log(Path(data_dir) / TRIALS_FILE, keys)
 
 
@@ -451,4 +478,4 @@ def forecast_test(d: pd.DataFrame, data_dir: Path = config.DATA_DIR) -> dict:
             "passed": bool(table["dm_t"].iloc[0] > norm.isf(config.FORECAST_ALPHA)),
             "floored": floored, "zero_range_sessions": zero_range,
             "n_trials": _append_log(Path(data_dir) / FORECAST_TRIALS_FILE,
-                                    [f"har-x + gex_pct | parkinson variance t+1 | qlike dm | {cfg}"])}
+                                    [f"har-x + gex_pct | parkinson variance t+1 | qlike dm | {cfg}{_source_tag(d)}"])}

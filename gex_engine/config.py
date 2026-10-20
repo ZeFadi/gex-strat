@@ -47,6 +47,11 @@ CASH_SETTLED_ROOTS = {"SPX", "SPXW", "NDX", "NDXP", "RUT", "RUTW", "XSP"}
 # against the VIX index level has no hedging meaning.
 SYMBOLS = ("SPX", "NDX", "RUT", "XSP", "SPY", "QQQ", "IWM")
 
+# Option roots listed under each symbol: one CBOE file carries them all, an end-of-day vendor
+# file lists every root of the market and the provider keeps these.
+ROOTS = {"SPX": ("SPX", "SPXW"), "NDX": ("NDX", "NDXP"), "RUT": ("RUT", "RUTW"), "XSP": ("XSP",),
+         "SPY": ("SPY",), "QQQ": ("QQQ",), "IWM": ("IWM",)}
+
 # Futures used to express hedge flows: (name, $ per index point, index level per unit of the
 # underlying's price). Contracts = $ delta / (multiplier x ratio x S). XSP is SPX / 10, hence
 # ratio 10. ETFs are expressed in shares: their ratio to the index drifts with fees and
@@ -128,6 +133,13 @@ PROJECTION_TIMES = ((12, 0), (14, 0), (15, 0), (15, 30), (15, 50))
 
 # Local data folder: daily archive of raw chains and the history the study reads.
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+# End-of-day option history (historicaldata.net): one CSV per session in this folder, the
+# layout of the free sample (2022 H2: SPX, SPY) and of the paid archive alike. Licensed data,
+# never in the repository; `cli.py eod-sample` fetches the sample, `cli.py eod-import`
+# turns any set of days into data/history_eod.csv.
+EOD_DIR = DATA_DIR / "vendor" / "historicaldata" / "day_by_date"
+EOD_SAMPLE_URL = "https://historicaldata.net/file/options_sample_2022H2.zip"
 
 # During the session, a file whose as-of lags the clock by more than this is frozen
 # (the quotes themselves are 15 minutes old).

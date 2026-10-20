@@ -212,6 +212,32 @@ The tests check:
 * the no-look-ahead property of the z-score;
 * the consecutive-day rule.
 
+### 10.1 End-of-day vendor history (historicaldata.net)
+
+The daily archive only starts on 2026-10-12. Past chains come from a vendor's end-of-day files: one CSV per session with every listed contract. The free sample (2022-07-01 to 2022-12-30, SPX with SPXW, and SPY) and the paid archive (2002 on) share the same layout. Moving to the paid data therefore means more files in `data/vendor/historicaldata/day_by_date/` and one `cli.py eod-import`, with no code change. The files are licensed: they are not redistributed and stay out of the repository. The summary rows derived from them (`data/history_eod.csv`) are versioned.
+
+**Provider** (`data.eod_chain`). It applies the conventions of the vendor's README:
+* the quotes are the closing quotes, and `asof` is the options close (16:15 New York);
+* the open interest is the figure published for the session, i.e. positions at the prior close. This is the start-of-session convention of the evening CBOE archive;
+* the root is taken from the contract symbol (SPX vs SPXW), not from the `underlying` column, which changed convention in 2014;
+* expirations dated on the nominal Saturday (before 2015-02) settle on the Friday;
+* blank quotes stay missing.
+
+On the same quotes, the CBOE provider and this one give the same book (net GEX within 1e-5; the as-of differs by one second, tested).
+
+**Import** (`study.import_eod`). The whole table is recomputed from the files. The price change is the close minus the previous file's close; a day that fails to price breaks the chain, so two sessions around it are never paired. The vendor has no underlying open, high or low. The study therefore measures close-to-close vol (the next session, and today's as a control), and it leaves the range and the walls empty rather than wrong.
+
+**First results, free sample** (2022 H2, 127 sessions; one year, a falling market).
+* **Our SPX GEX against SqueezeMetrics'.**
+  * Levels correlate at 0.95, ranks at 0.96 and daily changes at 0.88. The two describe the same book.
+  * Their signs agree on only 68% of sessions: ours is negative on 69% of them, theirs on 37%. Our zero sits lower, most likely because the long-calls / short-puts convention counts every put as short. Their sign is therefore not ours.
+  * Consequence for section 13, on this sample: rank-based regimes (`gex_low`) should carry over to our engine; sign-based ones (`gex_sign`) should not.
+* **Next session, SPX** (126 pairs, close-to-close vol).
+  * Next-session vol is 14.9% after a positive-gamma close and 19.3% after a negative one (Welch t −1.45).
+  * In the regression with the next session's implied vol and today's vol, the GEX z-score has a coefficient of −4.7 vol points per standard deviation (t −2.0), and the distance to zero gamma −2.5 per one-day σ (t −2.3).
+  * **SPY**: 10.2% vs 19.4% (t −3.4).
+* These are six months of one regime. They are consistent with section 13's mechanism and show the engine works on history; they are not evidence on their own. The paid archive would turn them into a 2012-2026 test.
+
 ## 11. Validation (fixture: CBOE files of the 2026-10-12 close)
 
 | Check | SPX | SPY |

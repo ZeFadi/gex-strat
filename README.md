@@ -83,7 +83,8 @@ Two rules hold everywhere:
 |---|---|---|
 | add an underlying | `config.SYMBOLS`, `CBOE_FILE`; `SETTLEMENT_TIME` if it has AM roots; `FUTURES` if it has a future; `CASH_SETTLED_ROOTS` if cash-settled | freeze a closing file in `tests/fixtures/` and add it to `test_surface.test_new_indices` |
 | change a threshold (trapdoor, shocks, profile range, projection times) | `gex_engine/config.py`, each constant is commented | `pytest` |
-| plug in another data source | a function returning `data.Chain` (see `data.COLUMNS`) with a timezone-aware `asof` | use it in `ui._fetch_state` instead of `data.fetch` |
+| plug in another data source | a function returning `data.Chain` (see `data.COLUMNS`) with a timezone-aware `asof` | live: use it in `ui._fetch_state` instead of `data.fetch`; history: as `data.eod_chain` is used in `study.import_eod` |
+| move from the free end-of-day sample to the paid archive | nothing in the code: the paid files have the sample's layout | put them in `data/vendor/historicaldata/day_by_date/`, run `cli.py eod-import` (any symbol of `config.ROOTS`); `backtest.dataset(source="eod")` then runs every trial on our own GEX |
 | add a page | a script in `app_pages/` starting with `ctx = ui.context()`, registered in `app.py` | add it to `PAGES` in `tests/test_app.py` |
 | change the archive schedule | `JOBS` in `cli.py` (New York times) | `python cli.py install` |
 | test a new strategy idea | a rule in `backtest.raw_position` / `RULES`, or a regime in `backtest.regimes` | it is a new trial: the trials log grows and every deflated Sharpe gets stricter; record it in METHODOLOGY section 13 |
@@ -96,6 +97,8 @@ Two rules hold everywhere:
 | CBOE delayed chains | downloaded live by the app | the app, every minute |
 | daily archive of closing chains | `data/raw/{symbol}/{date}.json.gz` (about 6 MB a day), plus SPX's pre-open republication `{date}_preopen.json.gz` (1.8 MB) | `cli.py archive` (scheduled) |
 | summary history of the archive | `data/history.csv` | the archive; `cli.py rebuild` recomputes it from `data/raw/` |
+| end-of-day option history (historicaldata.net: free sample 2022 H2, SPX and SPY; paid archive since 2002, same layout) | `data/vendor/historicaldata/day_by_date/` | **not in the repository** (licence: no redistribution): `cli.py eod-sample` |
+| summary history of the end-of-day files, same row as the archive's | `data/history_eod.csv` | `cli.py eod-import` (derived numbers, versioned) |
 | backtest trials log (append-only) | `data/backtest/trials.csv` | each new backtest configuration |
 | frozen CBOE files for the tests | `tests/fixtures/` | never (tests depend on them) |
 | backtest prices (SPX OHLC, S&P 500 total return, 3-month rate, VIX, VIX futures UX1/UX2) | `data/market/prices.csv`: **not in the repository** (Bloomberg data); its provenance file, versioned, lists the tickers, columns and dates | export from a terminal, then `cli.py backtest-data --prices FILE` |
@@ -122,6 +125,8 @@ Everything except the price file is in the repository. The licence covers the co
 .venv/bin/python cli.py check                        # is this machine ready?
 .venv/bin/python cli.py backtest-data --squeeze      # download SqueezeMetrics' GEX history
 .venv/bin/python cli.py backtest-data --prices FILE  # check and copy a daily price file
+.venv/bin/python cli.py eod-sample                   # free end-of-day sample (2022 H2), checked against its manifest
+.venv/bin/python cli.py eod-import SPX SPY           # end-of-day files -> data/history_eod.csv (about 1 s a day a symbol)
 ```
 
 The archive retries network errors three times; scheduled runs (`--log`) append to `data/archive.log`.
@@ -131,9 +136,9 @@ The archive retries network errors three times; scheduled runs (`--log`) append 
 | File | What it guarantees |
 |---|---|
 | `test_pricing.py` | Greeks equal finite differences of the price; parity; implied-vol round trips |
-| `test_surface.py` | known forwards and vols recovered exactly on a synthetic chain; clock, AM/PM settlement, DST; CBOE consistency at the close and in session (0DTE gamma within 2% of CBOE) |
+| `test_surface.py` | known forwards and vols recovered exactly on a synthetic chain; clock, AM/PM settlement, DST; CBOE consistency at the close and in session (0DTE gamma within 2% of CBOE); the end-of-day provider gives the same book as CBOE on the same quotes, nominal Saturday expiries settle on Friday |
 | `test_exposures.py` | net GEX = strike bars = profile at spot; zero gamma equals a closed form; band; projection; tiny scenario shocks reproduce GEX and VEX; cash vs physical settlement |
-| `test_study.py` | archive rules; Newey-West formula; a simulated effect is found, no look-ahead, no glued days |
+| `test_study.py` | archive rules; Newey-West formula; a simulated effect is found, no look-ahead, no glued days; end-of-day import never bridges a failed day; close-only histories fall back to close-to-close |
 | `test_flow.py` | Lee-Ready, EMO, BVC; inventory; flow GEX = structural GEX for the same positions |
 | `test_backtest.py` | a perfect-foresight signal pays only at the right lag; no look-ahead in regimes and sizing; costs; VIX futures roll; deflated Sharpe; append-only trials log |
 | `test_app.py` | every page renders; one download serves every view; stale-source warning |
@@ -159,7 +164,7 @@ gex_engine/
     study.py        daily archive and history, next-day regime study
     backtest.py     backtest inputs (ES excess returns, roll-adjusted VIX futures, GEX), rules, report
     charts.py       Plotly figures
-data/               raw/ archive, history.csv, backtest/trials.csv, market/ and external/ inputs (archive.log stays local)
+data/               raw/ archive, history.csv, history_eod.csv, backtest/ logs, market/ and external/ inputs (archive.log, vendor/ and prices.csv stay local)
 tests/              pytest and frozen fixtures
 LICENSE, NOTICE     Apache 2.0 for the code; the data keeps its providers' terms
 ```

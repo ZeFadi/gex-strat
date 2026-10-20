@@ -10,6 +10,8 @@
     python cli.py uninstall
     python cli.py backtest-data --prices FILE # check and copy the backtest's price file
     python cli.py backtest-data --squeeze     # download SqueezeMetrics' public GEX history
+    python cli.py eod-sample                  # download the free end-of-day sample (2022 H2, SPX and SPY)
+    python cli.py eod-import [SPX SPY]        # end-of-day files -> data/history_eod.csv
 
 Run it with the project's interpreter: .venv/bin/python on macOS and Linux,
 .venv\\Scripts\\python on Windows.
@@ -27,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import zipfile
 from datetime import date, datetime, time, timedelta, timezone
 from importlib import metadata
 from pathlib import Path
@@ -273,6 +276,51 @@ def copy_prices(source: Path, label: str) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- end-of-day history
+
+def fetch_eod_sample(url: str = config.EOD_SAMPLE_URL, target: Path = config.EOD_DIR) -> int:
+    """Download the vendor's free sample and unpack its daily files into `target`, checked.
+
+    Only the CSVs, the manifest, README and LICENSE are taken (the sample's own script is
+    not); every CSV must match the SHA-256 of the manifest. The paid archive is delivered in
+    the same layout: point its download at the same folder, then run eod-import.
+    """
+    target.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        archive_path = Path(tmp) / "sample.zip"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=600) as resp, open(archive_path, "wb") as fh:
+            shutil.copyfileobj(resp, fh)
+        with zipfile.ZipFile(archive_path) as z:
+            manifest = json.loads(z.read("day_by_date/manifest.json"))
+            expected = {f["name"]: f["sha256"] for f in manifest["files"]}
+            for name in ("README.md", "LICENSE.txt"):
+                (target.parent / name).write_bytes(z.read(name))
+            (target / "manifest.json").write_bytes(z.read("day_by_date/manifest.json"))
+            bad = []
+            for name, sha in expected.items():
+                content = z.read(f"day_by_date/{name}")
+                if hashlib.sha256(content).hexdigest() != sha:
+                    bad.append(name)
+                    continue
+                (target / name).write_bytes(content)
+    print(f"{len(expected) - len(bad)} daily files in {target}" + (f"; checksum mismatch, not written: {bad}" if bad else ""))
+    print("licence: data/vendor/historicaldata/LICENSE.txt (no redistribution: the folder stays out of git)")
+    return 1 if bad else 0
+
+
+def import_eod(symbols: list[str]) -> int:
+    """Recompute data/history_eod.csv from the end-of-day files."""
+    if not data.eod_files():
+        print(f"no end-of-day files in {config.EOD_DIR}; run `cli.py eod-sample` first", file=sys.stderr)
+        return 1
+    hist, failed = study.import_eod([s.upper() for s in symbols])
+    print(f"history_eod.csv: {len(hist)} rows, {hist['date'].min()} to {hist['date'].max()}" if len(hist) else "no rows")
+    for line in failed:
+        print(f"not imported: {line}", file=sys.stderr)
+    return 1 if failed else 0
+
+
 # --------------------------------------------------------------------------- setup check
 
 def check() -> int:
@@ -306,6 +354,9 @@ def check() -> int:
     if not (config.DATA_DIR / backtest.PRICES_FILE).exists():      # licensed, not a set-up failure
         print(f"info  data/{backtest.PRICES_FILE.as_posix()}: absent (licensed, not in the repository); "
               "only the Backtest page needs it")
+    days = data.eod_files()
+    print(f"info  end-of-day vendor files: {len(days)}"
+          + (f" ({days[0].name[:10]} to {days[-1].name[:10]})" if days else " (optional: cli.py eod-sample)"))
     try:
         with tempfile.TemporaryFile(dir=config.DATA_DIR):
             pass
@@ -348,6 +399,9 @@ def main(argv=None) -> int:
     b.add_argument("--prices", type=Path, help=f"CSV with columns date, {', '.join(PRICE_COLUMNS)}")
     b.add_argument("--label", default="", help="provenance label of the price file (e.g. its vendor)")
     b.add_argument("--squeeze", action="store_true", help="download SqueezeMetrics' GEX history")
+    sub.add_parser("eod-sample", help="download the free end-of-day sample (historicaldata.net, 2022 H2)")
+    e = sub.add_parser("eod-import", help="end-of-day files -> data/history_eod.csv")
+    e.add_argument("symbols", nargs="*", default=["SPX", "SPY"])
     args = ap.parse_args(argv)
 
     if args.command == "check":
@@ -365,6 +419,10 @@ def main(argv=None) -> int:
         for line in failed:
             print(f"kept the previous row for {line}", file=sys.stderr)
         return 0
+    if args.command == "eod-sample":
+        return fetch_eod_sample()
+    if args.command == "eod-import":
+        return import_eod(args.symbols)
     if args.command == "install":
         return install()
     if args.command == "uninstall":

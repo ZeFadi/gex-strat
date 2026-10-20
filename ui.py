@@ -114,9 +114,9 @@ def backtest_data_stamp() -> float:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def history_table() -> pd.DataFrame:
-    """The archived history (re-read every 5 minutes)."""
-    return study.load_history()
+def history_table(file: str = study.HISTORY_FILE) -> pd.DataFrame:
+    """A history table: the CBOE archive's, or the end-of-day vendor one (re-read every 5 minutes)."""
+    return study.load_history(file=file)
 
 
 @dataclass(frozen=True)

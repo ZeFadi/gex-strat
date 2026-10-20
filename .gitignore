@@ -14,3 +14,6 @@ data/market/prices.csv
 
 # Raw files set aside after an incident (rebuild skips them anyway)
 data/raw/*/*-corrupt.json.gz
+
+# Licensed end-of-day files (historicaldata.net): no redistribution
+data/vendor/

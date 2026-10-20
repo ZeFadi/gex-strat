@@ -4,6 +4,7 @@ from datetime import datetime
 
 import pandas as pd
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 from gex_engine import backtest, charts, config, data, snapshot, study, surface
@@ -29,6 +30,7 @@ def offline(monkeypatch):
     monkeypatch.setattr(data, "fetch", fetch)
     monkeypatch.setattr(study, "load_history", lambda *a, **k: pd.DataFrame())
     monkeypatch.setattr(backtest, "_append_log", lambda *a, **k: 0)        # never touch the real trials logs
+    st.cache_data.clear()                     # cached tables must not leak from one test into the next
     return calls
 
 
@@ -88,3 +90,21 @@ def test_session_lag_flag():
     close = datetime(2026, 10, 12, 16, 14, tzinfo=NY)                                            # previous close
     assert surface.stale_message(close, datetime(2026, 10, 13, 9, 35, tzinfo=NY)) is None       # feed not caught up yet
     assert surface.stale_message(close, datetime(2026, 10, 13, 11, 0, tzinfo=NY)) is not None
+
+
+@pytest.mark.parametrize("source", ["CBOE archive", "End-of-day vendor"])
+def test_study_page_reads_either_history(offline, monkeypatch, source):
+    """Both histories render with their statistics; the vendor one has closes only."""
+    from .test_study import _history
+    h = _history().assign(symbol="SPX")
+    h = h.assign(zero_gamma_low=h["zero_gamma"] * 0.99, zero_gamma_high=h["zero_gamma"] * 1.01)
+    files = {study.HISTORY_FILE: h, study.EOD_HISTORY_FILE: h.assign(open=float("nan"), high=float("nan"), low=float("nan"))}
+    monkeypatch.setattr(study, "load_history", lambda data_dir=None, file=study.HISTORY_FILE: files[file])
+    at = _run(AppTest.from_file(APP))
+    at.switch_page("app_pages/study.py")
+    _run(at)
+    at.segmented_control(key="study_source").set_value(source)
+    _run(at)
+    text = " ".join(m.value for m in at.markdown)
+    assert ("Garman-Klass" if source == "CBOE archive" else "close-to-close") in text
+    assert ("Walls of t" in text) == (source == "CBOE archive")

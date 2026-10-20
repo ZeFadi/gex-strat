@@ -1,8 +1,9 @@
 """Clock, forwards, implied spot and vols: exact on synthetic data, consistent with CBOE at the close and in session."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from gex_engine import config, data, exposures, snapshot, surface
@@ -172,3 +173,36 @@ def test_file_before_the_delayed_open_is_refused_clearly():
     chain = data.load(fixture("open_SPY_2026-10-13_noquotes.json.gz"), "SPY")
     with pytest.raises(ChainError, match="no two-sided quote yet"):
         surface.build(chain)
+
+
+# --------------------------------------------------------------------------- end-of-day vendor provider
+
+def vendor_day(chain, quote_date="2026-10-12", close=None):
+    """A CBOE chain written in the vendor's end-of-day layout (blank, not zero, for missing quotes)."""
+    c = chain.contracts
+    return pd.DataFrame({
+        "contract": c["contract"], "underlying": c["root"], "expiration": c["expiry"].astype(str),
+        "type": np.where(c["is_call"], "call", "put"), "strike": c["strike"], "quote_date": quote_date,
+        "bid": c["bid"].where(c["bid"] > 0), "ask": c["ask"].where(c["ask"] > 0), "close": c["last"],
+        "volume": c["volume"], "open_interest": c["oi"],
+        "underlying_close": close or chain.meta["close"], "iv": c["iv_vendor"], "delta": c["delta_vendor"],
+        "gamma": c["gamma_vendor"]})
+
+
+def test_vendor_files_price_like_the_live_source(spx_chain, spx_state):
+    """The same quotes through either provider give the same book: switching sources changes no number."""
+    day = vendor_day(spx_chain).assign(root=lambda d: d["contract"].str[:-15])
+    st = surface.build(data.eod_chain(day, "SPX"))
+    assert st.asof == datetime(2026, 10, 12, 16, 15, tzinfo=NY)
+    assert st.spot == pytest.approx(spx_state.spot, rel=1e-8)                 # 1 second of as-of apart
+    a, b = snapshot.build(st, "all")["summary"], snapshot.build(spx_state, "all")["summary"]
+    assert a["net_gex"] == pytest.approx(b["net_gex"], rel=1e-5)
+    assert a["zero_gamma"] == pytest.approx(b["zero_gamma"], rel=1e-6)
+
+
+def test_vendor_nominal_saturday_expiry_settles_on_friday(spx_chain):
+    day = vendor_day(spx_chain).assign(root=lambda d: d["contract"].str[:-15])
+    day.loc[day["expiration"] == "2026-11-20", "expiration"] = "2026-11-21"        # a Saturday
+    chain = data.eod_chain(day, "SPX")
+    assert str(date(2026, 11, 21)) not in set(map(str, chain.contracts["expiry"]))
+    assert (chain.contracts["expiry"] == date(2026, 11, 20)).sum() == (day["expiration"] == "2026-11-21").sum()

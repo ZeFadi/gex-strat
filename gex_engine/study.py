@@ -17,6 +17,15 @@ ETFs' last print is stamped 15:59:59, the indices' 16:00 to 16:15);
 a run during the session saves nothing unless asked for an intraday snapshot. An archived
 close is never overwritten unless forced: re-running the same day reports it as archived.
 
+End-of-day vendor history
+-------------------------
+The same summary rows computed from a vendor's end-of-day files (data.eod_chain), all days
+at once, in data/history_eod.csv: `import_eod`. The vendor files are the record, so the
+table is recomputed whole from them (after an engine change, or when more days arrive: the
+paid archive drops into the same folder). Vendor files carry the underlying close only, no
+open, high or low: the study then measures close-to-close vol, and range and wall statistics
+are left empty rather than wrong.
+
 Regime study
 ------------
 Does the GEX regime say anything about the next day? Measured on the archived history.
@@ -34,6 +43,10 @@ Dataset, one row per (symbol, trading day t), from data/history.csv:
 * outcomes of day t+1: realized vol close-to-close and Garman-Klass (annualized with 252
   trading days), high-low range in % of the previous close, return, and whether the walls
   of t were touched and held.
+
+Realized vol is Garman-Klass where the day's open, high and low are known (CBOE archive) and
+close-to-close otherwise (vendor end-of-day history); the regression uses Garman-Klass when
+it has MIN_DAYS complete pairs and close-to-close otherwise, and says which.
 
 Day t+1 is paired with day t only if the two are consecutive sessions: adjacent business
 days, or (across a holiday) the previous close implied by t+1's `price_change` equals the
@@ -71,6 +84,7 @@ from .stats import PERIODS, newey_west_ols
 # --------------------------------------------------------------------------- archive and history
 
 HISTORY_FILE = "history.csv"
+EOD_HISTORY_FILE = "history_eod.csv"
 
 
 def summary_row(state: surface.MarketState) -> dict:
@@ -160,13 +174,13 @@ def append_history(row: dict, data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
     return hist
 
 
-def load_history(data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
-    """The history table, empty if nothing has been archived yet.
+def load_history(data_dir: Path = config.DATA_DIR, file: str = HISTORY_FILE) -> pd.DataFrame:
+    """A history table (the CBOE archive's by default), empty if it does not exist yet.
 
     Floats are read back exactly (round trip), so re-writing the table changes only the rows
     that changed: the file is versioned and its diffs are read.
     """
-    path = Path(data_dir) / HISTORY_FILE
+    path = Path(data_dir) / file
     return pd.read_csv(path, float_precision="round_trip") if path.exists() else pd.DataFrame()
 
 
@@ -223,6 +237,36 @@ def archive(symbol: str, intraday: bool = False, force: bool = False, preopen: b
     return "archived", f"{symbol}: close of {row['date']} archived -> {path}"
 
 
+def import_eod(symbols=("SPX", "SPY"), directory: Path = config.EOD_DIR,
+               data_dir: Path = config.DATA_DIR) -> tuple[pd.DataFrame, list[str]]:
+    """Summary rows of every vendor day for `symbols`, written whole to data/history_eod.csv.
+
+    The day's price change is the close minus the previous FILE's close: the vendor publishes
+    one file per session (its manifest checks the set is complete), so consecutive files are
+    consecutive sessions. A day that cannot be priced breaks that chain: the next day gets no
+    price change, and the study cannot glue the two sessions around it.
+    Returns the table and the list of (file, symbol) that failed.
+    """
+    rows, failed, prev_close = [], [], {}
+    for path in data.eod_files(directory):
+        day = data.eod_read(path)
+        for sym in symbols:
+            try:
+                row = summary_row(surface.build(data.eod_chain(day, sym)))
+            except Exception as exc:
+                failed.append(f"{path.name} {sym}: {exc}")
+                prev_close.pop(sym, None)
+                continue
+            row["price_change"] = row["close"] - prev_close[sym] if sym in prev_close else None
+            prev_close[sym] = row["close"]
+            rows.append(row)
+    hist = pd.DataFrame(rows)
+    if not hist.empty:
+        hist = hist.sort_values(["symbol", "date"])
+        hist.to_csv(Path(data_dir) / EOD_HISTORY_FILE, index=False, lineterminator="\n")
+    return hist, failed
+
+
 # --------------------------------------------------------------------------- regime study
 
 MIN_DAYS = 30          # below this, no statistic is reported
@@ -251,6 +295,8 @@ def build_dataset(hist: pd.DataFrame, symbol: str) -> pd.DataFrame:
     consecutive = adjacent | across_holiday.fillna(False).to_numpy()
 
     base = h["close"]                                    # archived close of t
+    prev_close = h["close"] - h["price_change"]
+    nxt_hl = nxt["high"].notna() & nxt["low"].notna()   # no high / low: walls not measurable
     calendar_days = (pd.to_datetime(nxt["date"]) - pd.to_datetime(h["date"])).dt.days
     indeterminate = (h["regime_indeterminate"].astype(str).str.lower() == "true"
                      if "regime_indeterminate" in h else pd.Series(False, index=h.index))
@@ -265,14 +311,15 @@ def build_dataset(hist: pd.DataFrame, symbol: str) -> pd.DataFrame:
         "front_share": h["front_share_abs_gex"],
         "iv_next": 100.0 * h["atm_vol_1d"] * np.sqrt(calendar_days / config.DAYS_PER_YEAR * PERIODS),
         "rv_today": 100.0 * h["rv_gk"],
+        "rv_today_cc": 100.0 * np.abs(np.log(h["close"] / prev_close)) * np.sqrt(PERIODS),
         "next_rv_cc": 100.0 * np.abs(np.log(nxt["close"] / base)) * np.sqrt(PERIODS),
         "next_rv_gk": 100.0 * nxt["rv_gk"],
         "next_range_pct": 100.0 * (nxt["high"] - nxt["low"]) / base,
         "next_ret_pct": 100.0 * (nxt["close"] / base - 1),
-        "call_wall_touched": nxt["high"] >= h["call_wall"],
-        "call_wall_held": (nxt["high"] >= h["call_wall"]) & (nxt["close"] < h["call_wall"]),
-        "put_wall_touched": nxt["low"] <= h["put_wall"],
-        "put_wall_held": (nxt["low"] <= h["put_wall"]) & (nxt["close"] > h["put_wall"]),
+        "call_wall_touched": (nxt["high"] >= h["call_wall"]).where(nxt_hl),
+        "call_wall_held": ((nxt["high"] >= h["call_wall"]) & (nxt["close"] < h["call_wall"])).where(nxt_hl),
+        "put_wall_touched": (nxt["low"] <= h["put_wall"]).where(nxt_hl),
+        "put_wall_held": ((nxt["low"] <= h["put_wall"]) & (nxt["close"] > h["put_wall"])).where(nxt_hl),
     })
     return d.loc[consecutive].reset_index(drop=True)
 
@@ -316,11 +363,15 @@ def regression(d: pd.DataFrame, outcome: str = "next_rv_gk",
 
 
 def wall_behaviour(d: pd.DataFrame) -> pd.DataFrame:
-    """How often the walls of t were touched on t+1, and how often they held when touched."""
+    """How often the walls of t were touched on t+1, and how often they held when touched.
+
+    Only days whose t+1 high and low are known count (none in vendor end-of-day history).
+    """
     rows = []
     for wall in ("call_wall", "put_wall"):
-        touched = d[f"{wall}_touched"].astype(bool)
-        rows.append({"wall": wall.replace("_", " "), "days": len(d), "touched": int(touched.sum()),
+        known = d[f"{wall}_touched"].notna()
+        touched = d[f"{wall}_touched"].where(known, False).astype(bool)
+        rows.append({"wall": wall.replace("_", " "), "days": int(known.sum()), "touched": int(touched.sum()),
                      "held_when_touched": float(d.loc[touched, f"{wall}_held"].mean()) if touched.any() else np.nan})
     return pd.DataFrame(rows)
 
@@ -331,7 +382,10 @@ def run(hist: pd.DataFrame, symbol: str) -> dict:
     n = len(d)
     out = {"symbol": symbol, "days": n, "enough": n >= MIN_DAYS, "dataset": d}
     if n >= MIN_DAYS:
+        gk = d[["next_rv_gk", "rv_today"]].notna().all(axis=1).sum() >= MIN_DAYS
+        out["measure"] = "Garman-Klass" if gk else "close-to-close"
         out["means"] = conditional_means(d)
-        out["regression"] = regression(d)
+        out["regression"] = (regression(d) if gk else
+                             regression(d, "next_rv_cc", ("gex_z", "zero_gamma_sigmas", "iv_next", "rv_today_cc")))
         out["walls"] = wall_behaviour(d)
     return out

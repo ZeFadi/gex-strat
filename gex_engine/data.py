@@ -39,6 +39,24 @@ derives the previous close from it where needed (study.build_dataset).
 close SPY's carries the extended-hours print (777.735 on the fixture while the options
 imply 778.11). The engine therefore takes its reference spot from put-call parity
 (surface.build) and keeps this one for the data-quality report.
+
+End-of-day vendor files (historicaldata.net)
+--------------------------------------------
+History provider: one CSV per session (`{date}_options.csv`, 34 columns, every listed contract
+of every market). The free sample (2022 H2, SPX and SPY) and the paid archive (2002 on) share
+the layout, so moving to the paid data means more files in config.EOD_DIR, no code change.
+Their README fixes the conventions this provider relies on:
+
+* quotes are the closing quotes of `quote_date`; `asof` is set to the options close, 16:15
+  New York (index and ETF options quote until then);
+* `open_interest` is the figure published for the session, i.e. positions at the PRIOR
+  close: the start-of-session open interest, the same convention as the evening CBOE archive;
+* `underlying_close` is the official close; there is no underlying open, high or low;
+* the root is the contract symbol without its last 15 characters (SPX vs SPXW), not the
+  `underlying` column, which changed convention in 2014;
+* before 2015-02 monthly expirations carry the nominal SATURDAY: the provider moves them to
+  the Friday, when they settle (AM for SPX, NDX, RUT through config.SETTLEMENT_TIME);
+* a blank field means "not available", never zero: blank bids and asks stay NaN.
 """
 
 from __future__ import annotations
@@ -224,3 +242,46 @@ def _file_time(payload: dict) -> datetime:
     if not ts:
         raise ChainError("payload carries no timestamp")
     return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc).astimezone(config.MARKET_TZ)
+
+
+# --------------------------------------------------------------------------- end-of-day vendor files
+
+EOD_COLUMNS = ("contract", "expiration", "type", "strike", "quote_date", "bid", "ask", "close", "volume",
+               "open_interest", "underlying_close", "iv", "delta", "gamma")
+
+
+def eod_files(directory: str | Path = config.EOD_DIR) -> list[Path]:
+    """The daily files of an end-of-day folder, in date order (provisional files excluded)."""
+    return sorted(Path(directory).glob("????-??-??_options.csv"))
+
+
+def eod_read(path: str | Path) -> pd.DataFrame:
+    """One vendor day, the columns the provider uses, with the contract root added."""
+    df = pd.read_csv(path, usecols=list(EOD_COLUMNS), dtype={"contract": str, "type": str})
+    return df.assign(root=df["contract"].str[:-15])
+
+
+def eod_chain(day: pd.DataFrame, symbol: str) -> Chain:
+    """The `Chain` of `symbol` (all its roots, config.ROOTS) in one vendor day."""
+    rows = day.loc[day["root"].isin(config.ROOTS[symbol])]
+    if rows.empty:
+        raise ChainError(f"{symbol}: no contract in this file")
+    quote_date = pd.Timestamp(rows["quote_date"].iloc[0]).date()
+    expiry = pd.to_datetime(rows["expiration"])
+    expiry = expiry - pd.to_timedelta((expiry.dt.dayofweek == 5).astype(int), unit="D")   # nominal Saturday
+    df = pd.DataFrame({
+        "contract": rows["contract"].to_numpy(), "root": rows["root"].to_numpy(),
+        "expiry": expiry.dt.date.to_numpy(), "is_call": (rows["type"] == "call").to_numpy(),
+        "strike": rows["strike"].to_numpy(float), "bid": rows["bid"].to_numpy(float),
+        "ask": rows["ask"].to_numpy(float), "last": rows["close"].to_numpy(float),
+        "volume": rows["volume"].fillna(0.0).to_numpy(float), "oi": rows["open_interest"].fillna(0.0).to_numpy(float),
+        "iv_vendor": rows["iv"].to_numpy(float), "delta_vendor": rows["delta"].to_numpy(float),
+        "gamma_vendor": rows["gamma"].to_numpy(float),
+    })
+    close = float(rows["underlying_close"].dropna().iloc[0]) if rows["underlying_close"].notna().any() else np.nan
+    asof = datetime.combine(quote_date, datetime.min.time().replace(hour=config.OPTIONS_CLOSE[0],
+                                                                    minute=config.OPTIONS_CLOSE[1]),
+                            tzinfo=config.MARKET_TZ)
+    meta = {"source": "historicaldata.net end of day", "close": close,
+            "open": None, "high": None, "low": None, "price_change": None, "iv30_vendor": None}
+    return validate(Chain(symbol=symbol, asof=asof, spot_quoted=close, contracts=df, meta=meta))

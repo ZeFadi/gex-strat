@@ -222,3 +222,29 @@ def test_the_versioned_history_is_the_one_read():
     assert not hist.empty and {"symbol", "date", "net_gex", "close"} <= set(hist.columns)
     own = backtest.gex_series(source="own")
     assert len(own) == (hist["symbol"] == "SPX").sum()
+
+
+def test_eod_import_chains_price_changes_and_never_bridges_a_failed_day(tmp_path, spx_chain):
+    from .test_surface import vendor_day
+    folder = tmp_path / "day_by_date"
+    folder.mkdir()
+    close = spx_chain.meta["close"]
+    vendor_day(spx_chain, "2026-10-12", close).to_csv(folder / "2026-10-12_options.csv", index=False)
+    vendor_day(spx_chain, "2026-10-12", close).iloc[:0].to_csv(folder / "2026-10-13_options.csv", index=False)
+    vendor_day(spx_chain, "2026-10-12", close + 10).to_csv(folder / "2026-10-14_options.csv", index=False)
+    vendor_day(spx_chain, "2026-10-12", close + 25).to_csv(folder / "2026-10-15_options.csv", index=False)
+    vendor_day(spx_chain, "2026-10-12", close).to_csv(folder / "2026-10-15_options_provisional.csv", index=False)
+    hist, failed = study.import_eod(["SPX"], folder, tmp_path)
+    assert len(failed) == 1 and "2026-10-13" in failed[0]
+    assert len(hist) == 3                                               # provisional file ignored
+    assert np.isnan(hist["price_change"].iloc[0]) and np.isnan(hist["price_change"].iloc[1])   # after the gap
+    assert hist["price_change"].iloc[2] == pytest.approx(15.0)
+    assert study.load_history(tmp_path, study.EOD_HISTORY_FILE).shape == hist.shape
+
+
+def test_close_only_history_uses_close_to_close_and_leaves_walls_empty():
+    h = _history().assign(open=np.nan, high=np.nan, low=np.nan)
+    res = study.run(h, "SYN")
+    assert res["measure"] == "close-to-close" and res["regression"] is not None
+    assert "rv_today_cc" in res["regression"]["term"].tolist()
+    assert (res["walls"]["days"] == 0).all()
