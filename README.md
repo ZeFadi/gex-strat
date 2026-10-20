@@ -94,7 +94,7 @@ Two rules hold everywhere:
 | Data | Where | Refreshed by |
 |---|---|---|
 | CBOE delayed chains | downloaded live by the app | the app, every minute |
-| daily archive of closing chains | `data/raw/{symbol}/{date}.json.gz` (about 6 MB a day) | `cli.py archive` (scheduled) |
+| daily archive of closing chains | `data/raw/{symbol}/{date}.json.gz` (about 6 MB a day), plus SPX's pre-open republication `{date}_preopen.json.gz` (1.8 MB) | `cli.py archive` (scheduled) |
 | summary history of the archive | `data/history.csv` | the archive; `cli.py rebuild` recomputes it from `data/raw/` |
 | backtest trials log (append-only) | `data/backtest/trials.csv` | each new backtest configuration |
 | frozen CBOE files for the tests | `tests/fixtures/` | never (tests depend on them) |
@@ -117,7 +117,8 @@ Everything except the price file is in the repository. The licence covers the co
 .venv/bin/python cli.py archive                      # today's closing chains, all symbols (nothing before the close)
 .venv/bin/python cli.py archive SPX --intraday       # a timestamped session snapshot
 .venv/bin/python cli.py rebuild                      # recompute data/history.csv after an engine change
-.venv/bin/python cli.py install                      # weekdays 16:30 New York, catch-up 01:30, in local time (uninstall to remove)
+.venv/bin/python cli.py archive SPX --preopen        # before the open: the close with the overnight open interest (raw only)
+.venv/bin/python cli.py install                      # weekdays 16:30 New York, catch-up 01:30, pre-open 07:45, in local time (uninstall to remove)
 .venv/bin/python cli.py check                        # is this machine ready?
 .venv/bin/python cli.py backtest-data --squeeze      # download SqueezeMetrics' GEX history
 .venv/bin/python cli.py backtest-data --prices FILE  # check and copy a daily price file

@@ -11,12 +11,13 @@ import pytest
 import cli
 
 START = date(2026, 10, 20)            # the coming year includes both daylight-saving mismatches
-EVENING, CATCH_UP = cli.JOBS["archive"], cli.JOBS["archive.catchup"]
+EVENING, CATCH_UP, PREOPEN = cli.JOBS["archive"], cli.JOBS["archive.catchup"], cli.JOBS["archive.preopen"]
 
 
 @pytest.mark.parametrize("zone,job,expected", [
     ("Europe/Paris", EVENING, (22, 30, [0, 1, 2, 3, 4])),       # the times used since the start
     ("Europe/Paris", CATCH_UP, (7, 30, [0, 1, 2, 3, 4, 5])),
+    ("Europe/Paris", PREOPEN, (13, 45, [0, 1, 2, 3, 4])),
     ("America/New_York", EVENING, (16, 30, [0, 1, 2, 3, 4])),
     ("Europe/London", EVENING, (21, 30, [0, 1, 2, 3, 4])),
     ("Asia/Tokyo", EVENING, (6, 30, [1, 2, 3, 4, 5])),          # next morning: Tuesday to Saturday
@@ -28,17 +29,20 @@ def test_local_schedule(zone, job, expected):
 
 
 @pytest.mark.parametrize("zone", ["Europe/Paris", "Europe/London", "Asia/Tokyo", "America/Chicago"])
-def test_evening_run_is_never_before_the_close(zone):
-    """Wherever the machine is, on every day of the year, the evening run is after 16:15 New York."""
+@pytest.mark.parametrize("job,window", [(EVENING, ((16, 15), (17, 30))),     # after the options close
+                                        (PREOPEN, ((7, 0), (9, 29)))])       # overnight OI in, before the open
+def test_runs_stay_in_their_new_york_window(zone, job, window):
+    """Wherever the machine is, on every day of the year, each run lands in its New York window."""
     from datetime import datetime, time, timedelta
     tz = ZoneInfo(zone)
-    hour, minute, _ = cli.local_schedule(*EVENING[:2], START, tz)
+    (h0, m0), days, _ = job
+    hour, minute, _ = cli.local_schedule((h0, m0), days, START, tz)
     for i in range(366):
         d = START + timedelta(days=i)
-        ny = datetime.combine(d, time(16, 30), tzinfo=cli.config.MARKET_TZ)
+        ny = datetime.combine(d, time(h0, m0), tzinfo=cli.config.MARKET_TZ)
         local_day = ny.astimezone(tz).date()
         run = datetime.combine(local_day, time(hour, minute), tzinfo=tz).astimezone(cli.config.MARKET_TZ)
-        assert (16, 15) <= (run.hour, run.minute) <= (17, 30)
+        assert window[0] <= (run.hour, run.minute) <= window[1]
 
 
 ARGV = [r"C:\Users\me\My Projects\GEX Strat\.venv\Scripts\pythonw.exe", r"C:\Users\me\My Projects\GEX Strat\cli.py",

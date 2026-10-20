@@ -59,6 +59,24 @@ def test_simulated_regime_effect_is_found():
     assert res["regression"] is not None and res["regression"]["n"].iloc[0] > 150
 
 
+def test_indeterminate_days_are_a_third_group():
+    h = _history()
+    h["regime_indeterminate"] = [i % 10 == 0 for i in range(len(h))]
+    d = study.build_dataset(h, "SYN")
+    m = study.conditional_means(d).set_index("outcome")
+    assert (d["regime"] == 0).sum() > 15
+    assert m.loc["next_rv_gk", "n_positive"] + m.loc["next_rv_gk", "n_negative"] + \
+        m.loc["next_rv_gk", "n_indeterminate"] == d["next_rv_gk"].notna().sum()
+
+
+def test_implied_vol_is_on_the_realized_basis():
+    """Friday to Monday: three calendar days of implied variance, annualized on 252 sessions."""
+    d = study.build_dataset(_history(n=10), "SYN").set_index("date")
+    h = _history(n=10).set_index("date")
+    friday = "2025-01-03"
+    assert d.loc[friday, "iv_next"] == pytest.approx(100 * h.loc[friday, "atm_vol_1d"] * np.sqrt(3 * 252 / 365))
+
+
 def test_no_effect_no_signal():
     m = study.run(_history(effect=0.0, seed=7), "SYN")["means"].set_index("outcome")
     assert abs(m.loc["next_rv_gk", "welch_t"]) < 3
@@ -108,9 +126,9 @@ def test_inconsistent_ohlc_is_not_used():
 
 def test_constant_feature_is_dropped_not_fatal():
     h = _history()
-    h["atm_vol_1d"] = 0.16
+    h["zero_gamma"] = h["spot"]                         # distance to zero gamma always 0
     reg = study.run(h, "SYN")["regression"]
-    assert "iv_1d" not in reg["term"].tolist() and reg["dropped"].iloc[0] == "iv_1d"
+    assert "zero_gamma_sigmas" not in reg["term"].tolist() and reg["dropped"].iloc[0] == "zero_gamma_sigmas"
 
 
 def _payload(symbol, **_):
@@ -177,6 +195,21 @@ def test_rewriting_the_history_changes_no_byte(tmp_path):
     row = study.load_history(tmp_path).iloc[-1].to_dict()
     study.append_history(row, tmp_path)
     assert (tmp_path / "history.csv").read_bytes() == path.read_bytes()
+
+
+def test_preopen_file_is_kept_raw_beside_the_close(tmp_path):
+    """An unquoted pre-open ETF file still carries the overnight open interest: kept raw, never in the history."""
+    study.archive("SPY", data_dir=tmp_path, download=_payload)
+    history = (tmp_path / "history.csv").read_bytes()
+    empty = _payload("SPY")
+    for o in empty["data"]["options"]:
+        o["bid"] = o["ask"] = 0.0
+    status, msg = study.archive("SPY", preopen=True, data_dir=tmp_path, download=lambda s, **_: empty)
+    assert status == "archived" and (tmp_path / "raw" / "SPY" / "2026-10-12_preopen.json.gz").exists()
+    assert study.archive("SPY", preopen=True, data_dir=tmp_path, download=lambda s, **_: empty)[0] == "exists"
+    assert (tmp_path / "history.csv").read_bytes() == history
+    hist, failed = study.rebuild_history(tmp_path)
+    assert len(hist) == 1 and not failed                # rebuild reads the close only
 
 
 def test_the_versioned_history_is_the_one_read():

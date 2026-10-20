@@ -32,7 +32,7 @@ if not res["enough"]:
     st.stop()
 
 st.markdown("**Next day, positive vs negative gamma**")
-ui.table(res["means"], dict.fromkeys(("positive_gamma", "negative_gamma", "difference", "welch_t"), "%.2f"),
+ui.table(res["means"], dict.fromkeys(("positive_gamma", "negative_gamma", "indeterminate", "difference", "welch_t"), "%.2f"),
          alt="Next-day outcomes by regime")
 st.markdown("**Next-day realized vol (Garman-Klass) on today's features, Newey-West t-stats**")
 if res["regression"] is None:

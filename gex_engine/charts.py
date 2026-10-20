@@ -197,8 +197,8 @@ def history(hist, height: int = 360) -> go.Figure:
 def study_scatter(d, height: int = 360) -> go.Figure:
     """Next-day realized vol against today's net GEX z-score, coloured by regime."""
     fig = go.Figure()
-    for flag, name, color in ((1.0, "Positive gamma", POS), (0.0, "Negative gamma", NEG)):
-        sub = d.loc[d["regime_positive"] == flag]
+    for flag, name, color in ((1.0, "Positive gamma", POS), (-1.0, "Negative gamma", NEG), (0.0, "Indeterminate", MUTED)):
+        sub = d.loc[d["regime"] == flag]
         fig.add_scatter(x=sub["gex_z"], y=sub["next_rv_gk"], mode="markers", name=name,
                         marker=dict(size=8, color=color, line=dict(color=SURFACE, width=1)),
                         customdata=sub["date"],

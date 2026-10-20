@@ -14,8 +14,8 @@ Free option data has no history, so it is built here, one close at a time:
 
 A day is archived only once its close is in the file (as-of at or after 15:59 New York: the
 ETFs' last print is stamped 15:59:59, the indices' 16:00 to 16:15);
-a run during the session saves nothing unless asked for an intraday snapshot. Re-running on
-the same day overwrites that day: the archive is idempotent.
+a run during the session saves nothing unless asked for an intraday snapshot. An archived
+close is never overwritten unless forced: re-running the same day reports it as archived.
 
 Regime study
 ------------
@@ -27,9 +27,10 @@ high. Before relying on it, this module measures it on the archived history.
 
 Dataset, one row per (symbol, trading day t), from data/history.csv:
 
-* features known at the close of t: regime sign, net GEX z-score (expanding, so no
-  look-ahead), distance to zero gamma in one-day sigmas, front-expiry share of |GEX|, and
-  two controls: the ATM one-day implied vol and today's realized vol;
+* features known at the close of t: regime (+1 positive, -1 negative, 0 indeterminate: the
+  zero-gamma band contains spot), net GEX z-score (expanding, so no look-ahead), distance
+  to zero gamma in one-day sigmas, front-expiry share of |GEX|, and two controls: the
+  implied vol of the next session and today's realized vol;
 * outcomes of day t+1: realized vol close-to-close and Garman-Klass (annualized with 252
   trading days), high-low range in % of the previous close, return, and whether the walls
   of t were touched and held.
@@ -41,6 +42,12 @@ non-consecutive sessions. Returns and ranges of t+1 are measured from the ARCHIV
 t: the vendor's `prev_day_close` is not usable (in closing files it equals the day's own
 close). An OHLC row is used for open-based measures only if low <= open, close <= high (the
 vendor's open is sometimes inconsistent: NDX on 2026-10-12 has open > high).
+
+Vol units: realized vols are annualized with 252 sessions. The implied vol is put on the
+same basis: the ATM vol at one calendar day (ACT/365) gives the expected variance until the
+next close, sigma^2 x calendar days / 365, annualized x 252 per session (`iv_next`). It is
+comparable to the close-to-close outcome, which includes the weekend; Garman-Klass is
+intraday only.
 
 Statistics: conditional means by regime with Welch t-statistics, and OLS of each outcome
 on the features with Newey-West (HAC, Bartlett kernel) standard errors. Implemented with
@@ -170,9 +177,15 @@ def quoted_share(chain: data.Chain) -> float:
     return float(((c["bid"] > 0) & (c["ask"] > 0)).mean()) if len(c) else 0.0
 
 
-def archive(symbol: str, intraday: bool = False, force: bool = False, data_dir: Path = config.DATA_DIR,
-            download=data.download) -> tuple[str, str]:
+def archive(symbol: str, intraday: bool = False, force: bool = False, preopen: bool = False,
+            data_dir: Path = config.DATA_DIR, download=data.download) -> tuple[str, str]:
     """Download one symbol (with retries) and archive it.
+
+    `preopen`: before the next open, CBOE republishes the previous close with the open interest
+    the OCC updated overnight (positions at the END of the session; the evening file carries
+    those of its start). That file is kept raw only, as {date}_preopen.json.gz next to the
+    close, to measure later which open interest predicts better; it never enters the history.
+    Its quotes may be empty (ETFs): only the as-of is checked.
 
     Returns (status, message), status one of "archived", "exists" (close already on disk) or
     "skipped" (not a close, or not quoted enough): the caller decides whether a skip is an error.
@@ -185,6 +198,14 @@ def archive(symbol: str, intraday: bool = False, force: bool = False, data_dir: 
     payload = download(symbol, attempts=config.ARCHIVE_ATTEMPTS)
     chain = data.parse(payload, symbol)
     asof = chain.asof.astimezone(config.MARKET_TZ)
+    if preopen:
+        if not is_close(chain):
+            return "skipped", f"{symbol}: as-of {asof:%Y-%m-%d %H:%M} ET is not a close, no pre-open file archived"
+        name = f"{asof:%Y-%m-%d}_preopen"
+        if not force and (Path(data_dir) / "raw" / symbol / f"{name}.json.gz").exists():
+            return "exists", f"{symbol}: pre-open file of {asof:%Y-%m-%d} already archived"
+        path = save_raw(payload, symbol, name, data_dir)
+        return "archived", f"{symbol}: pre-open file of the {asof:%Y-%m-%d} close -> {path}"
     share = quoted_share(chain)
     if share < config.ARCHIVE_MIN_QUOTED_SHARE:
         return "skipped", f"{symbol}: only {share:.0%} of contracts quoted (as-of {asof:%Y-%m-%d %H:%M} ET), nothing archived"
@@ -230,16 +251,19 @@ def build_dataset(hist: pd.DataFrame, symbol: str) -> pd.DataFrame:
     consecutive = adjacent | across_holiday.fillna(False).to_numpy()
 
     base = h["close"]                                    # archived close of t
+    calendar_days = (pd.to_datetime(nxt["date"]) - pd.to_datetime(h["date"])).dt.days
+    indeterminate = (h["regime_indeterminate"].astype(str).str.lower() == "true"
+                     if "regime_indeterminate" in h else pd.Series(False, index=h.index))
     gex = h["net_gex"]
     mean = gex.expanding(Z_MIN_PERIODS).mean().shift(1)
     std = gex.expanding(Z_MIN_PERIODS).std().shift(1)
     d = pd.DataFrame({
         "date": h["date"],
-        "regime_positive": (h["net_gex"] > 0).astype(float),
+        "regime": np.where(indeterminate, 0.0, np.where(h["net_gex"] > 0, 1.0, -1.0)),
         "gex_z": (gex - mean) / std,
         "zero_gamma_sigmas": (h["zero_gamma"] - h["spot"]) / h["one_day_move"],
         "front_share": h["front_share_abs_gex"],
-        "iv_1d": 100.0 * h["atm_vol_1d"],
+        "iv_next": 100.0 * h["atm_vol_1d"] * np.sqrt(calendar_days / config.DAYS_PER_YEAR * PERIODS),
         "rv_today": 100.0 * h["rv_gk"],
         "next_rv_cc": 100.0 * np.abs(np.log(nxt["close"] / base)) * np.sqrt(PERIODS),
         "next_rv_gk": 100.0 * nxt["rv_gk"],
@@ -254,21 +278,27 @@ def build_dataset(hist: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
 
 def conditional_means(d: pd.DataFrame, outcomes=("next_rv_gk", "next_rv_cc", "next_range_pct", "next_ret_pct")) -> pd.DataFrame:
-    """Mean of each outcome in positive vs negative gamma, difference and Welch t."""
+    """Mean of each outcome in positive vs negative gamma, difference and Welch t.
+
+    Indeterminate days (the zero-gamma band contains spot) are a third group, shown apart
+    and kept out of the comparison.
+    """
     rows = []
-    pos, neg = d.loc[d["regime_positive"] == 1], d.loc[d["regime_positive"] == 0]
+    pos, neg, mid = (d.loc[d["regime"] == r] for r in (1, -1, 0))
     for col in outcomes:
         a, b = pos[col].dropna(), neg[col].dropna()
         diff = a.mean() - b.mean() if len(a) and len(b) else np.nan
         se = np.sqrt(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b)) if len(a) > 1 and len(b) > 1 else np.nan
         rows.append({"outcome": col, "positive_gamma": a.mean(), "n_positive": len(a),
-                     "negative_gamma": b.mean(), "n_negative": len(b), "difference": diff,
+                     "negative_gamma": b.mean(), "n_negative": len(b),
+                     "indeterminate": mid[col].mean(), "n_indeterminate": int(mid[col].notna().sum()),
+                     "difference": diff,
                      "welch_t": diff / se if se and np.isfinite(se) and se > 0 else np.nan})
     return pd.DataFrame(rows)
 
 
 def regression(d: pd.DataFrame, outcome: str = "next_rv_gk",
-               features=("gex_z", "zero_gamma_sigmas", "iv_1d", "rv_today")) -> pd.DataFrame | None:
+               features=("gex_z", "zero_gamma_sigmas", "iv_next", "rv_today")) -> pd.DataFrame | None:
     """OLS of `outcome` on `features` with Newey-West errors; None if too few complete rows.
 
     A feature constant over the sample (a vendor field that never moved) is dropped and named

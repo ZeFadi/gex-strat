@@ -177,8 +177,9 @@ $$pos_c = -\sum_{\text{trades of } c} \text{sign} \times \text{size}$$
 
 ## 10. History and study
 
-**Archive** (`python cli.py archive`, scheduled by `python cli.py install`: a strict evening run on weekdays at 16:30 New York, where a symbol not archived is an error in the log, and a lenient catch-up run at 01:30 New York, both converted to the machine's local time; network errors are retried 3 times). It stores:
+**Archive** (`python cli.py archive`, scheduled by `python cli.py install`: a strict evening run on weekdays at 16:30 New York, where a symbol not archived is an error in the log, a lenient catch-up run at 01:30 New York, and a lenient pre-open run at 07:45 New York, all converted to the machine's local time; network errors are retried 3 times). It stores:
 * the raw CBOE payload per symbol and day (`data/raw/{SYMBOL}/{date}.json.gz`, about 1-2 MB);
+* for SPX, the same close as republished before the next open, with the open interest the OCC updated overnight (`{date}_preopen.json.gz`, raw only, from 2026-10-21; SPX only to keep the repository's growth at about 1.8 MB a day). It never enters the history; it is kept to measure which open interest, start or end of session, predicts the next session better. Its quotes can be empty (ETFs), so only its as-of is checked. On 2026-10-20 the updated open interest was in the file at 06:48 New York; 07:45, or 08:45 in the weeks when the machine's daylight-saving dates differ from New York's, stays before the open;
 * one summary row per symbol and day in `data/history.csv`: levels, band, front metrics, the day's OHLC and price change, the vendor's iv30, and the generation time of the CBOE file it was computed from (`file_generated_utc`, rows from 2026-10-20 on).
 
 A day is archived only once its close is in the file (as-of at or after 15:59 New York) and only after the file has passed every check: at least half of its contracts quoted two-sided (a pre-open ETF file can carry quotes on 1% of contracts), and a successful pricing. Nothing is written before that. An archived close is never overwritten unless asked (`archive --force`), so the morning catch-up only fills missing days. Before the open the ETF files carry quotes on about 1% of their contracts, so the catch-up can recover a missed evening for the indices only. `python cli.py rebuild` (`study.rebuild_history`) recomputes the whole table from the raw files after any change to the engine; a file that fails the checks, or a row without a raw file, keeps its existing row and is reported.
@@ -187,21 +188,21 @@ A day is archived only once its close is in the file (as-of at or after 15:59 Ne
 
 | Features at $t$ | Outcomes on $t+1$ |
 |---|---|
-| Regime sign | Realized vol, Garman-Klass |
+| Regime: +1 positive, −1 negative, 0 indeterminate (the zero-gamma band contains spot) | Realized vol, Garman-Klass |
 | Net GEX z-score (expanding mean and std up to $t-1$, so no look-ahead) | Realized vol, close-to-close |
 | Zero-gamma distance in one-day sigmas | High-low range in % of the previous close |
 | Front share of $|GEX|$ | Return |
-| One-day ATM implied vol (control) | Touch and hold of the call and put walls of $t$ |
+| Implied vol of the next session (control, `iv_next`) | Touch and hold of the call and put walls of $t$ |
 | Today's realized vol (control) | |
 
-Realized vols are annualized with 252 trading days.
+Realized vols are annualized with 252 trading days. The implied vol is put on the same basis: the ATM vol at one calendar day (ACT/365) gives the expected variance until the next close, $\sigma^2 \times$ calendar days $/365$, annualized with 252 sessions: $\text{iv\_next} = \sigma\sqrt{252 \cdot \text{days}/365}$. It is comparable to the close-to-close outcome, which includes the weekend; Garman-Klass measures the session only.
 
 Two consistency checks guard the dataset:
 * a pair is kept only if $t$ and $t+1$ are consecutive sessions: adjacent business days, or, across a holiday, $t+1$'s close minus its price change equals the archived close of $t$ (to 0.01%). A missing archive day therefore never glues two non-consecutive sessions. Returns and ranges of $t+1$ are measured from the ARCHIVED close of $t$. The vendor's `prev_day_close` cannot be used: in closing files it equals the day's own close (SPX 2026-10-12: 7,807.24 vs 7,807.2402, while the day's change was −4.30). For ETFs, the price change follows the after-hours price, so the holiday bridge only works for indices; ETF pairs around a holiday are dropped;
 * an OHLC row is used for open-based measures only if low ≤ open, close ≤ high. The vendor's NDX open on 2026-10-12 is above the high.
 
 **Statistics.** Each needs at least 30 pairs.
-* Conditional means by regime, with Welch t-statistics.
+* Conditional means by regime, with Welch t-statistics between positive and negative; indeterminate days are shown apart and kept out of the comparison.
 * OLS of each outcome on the features with Newey-West standard errors: Bartlett kernel, $L = \lfloor 4 (n/100)^{2/9} \rfloor$, implemented in numpy. A feature that is constant over the sample is dropped and named.
 * Touch and hold frequencies of the walls.
 

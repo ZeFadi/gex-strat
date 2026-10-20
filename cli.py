@@ -4,6 +4,7 @@
     python cli.py archive                     # today's closing chains, all symbols (nothing before the close)
     python cli.py archive SPX SPY --intraday  # timestamped session snapshots
     python cli.py archive SPX --force         # re-archive a close already on disk
+    python cli.py archive --preopen           # before the open: the close with the overnight open interest
     python cli.py rebuild                     # recompute data/history.csv from data/raw (after an engine change)
     python cli.py install                     # schedule the archive (macOS launchd, Windows Task Scheduler)
     python cli.py uninstall
@@ -44,11 +45,16 @@ LOG = config.DATA_DIR / "archive.log"
 # The two archive jobs, in New York time; weekdays 0 = Monday. The evening run (16:30, after
 # the 16:15 options close) is strict: a symbol it does not archive is an error in the log.
 # The catch-up run (01:30, while the CBOE file still holds the previous close) only fills
-# days the evening missed and is lenient. Both schedulers also start a run missed while the
-# machine was off or asleep as soon as it is back.
+# days the evening missed and is lenient. The pre-open run (07:45: the OCC open interest is
+# in the file by 06:50, and up to an hour later in daylight-saving gaps is still before the
+# 09:30 open) keeps the previous close republished with it, raw only, lenient; SPX only
+# (1.8 MB a day: enough to measure which open interest predicts better).
+# Both schedulers also start a run missed while the machine was off or asleep as soon as it
+# is back.
 JOBS = {
     "archive": ((16, 30), range(0, 5), ["archive"]),                             # Monday-Friday
     "archive.catchup": ((1, 30), range(0, 6), ["archive", "--catch-up"]),         # Monday-Saturday
+    "archive.preopen": ((7, 45), range(0, 5), ["archive", "SPX", "--preopen"]),   # Monday-Friday
 }
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -194,22 +200,22 @@ def uninstall() -> int:
     return 0
 
 
-def archive(symbols: list[str], intraday: bool, force: bool, catch_up: bool) -> int:
+def archive(symbols: list[str], intraday: bool, force: bool, catch_up: bool, preopen: bool = False) -> int:
     """Archive each symbol; one failing does not stop the others.
 
-    Exit code 1 if any symbol failed, or, outside catch-up mode, was skipped (not a close,
-    not quoted enough): a missing day must show in the log, not pass silently.
+    Exit code 1 if any symbol failed, or, outside catch-up and pre-open modes, was skipped
+    (not a close, not quoted enough): a missing day must show in the log, not pass silently.
     """
     errors = 0
     for sym in symbols:
         stamp = f"{datetime.now():%Y-%m-%d %H:%M}"
         try:
-            status, message = study.archive(sym.upper(), intraday=intraday, force=force)
+            status, message = study.archive(sym.upper(), intraday=intraday, force=force, preopen=preopen)
         except Exception as exc:
             errors += 1
             print(f"{stamp} {sym}: FAILED {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
             continue
-        if status == "skipped" and not catch_up:
+        if status == "skipped" and not (catch_up or preopen):
             errors += 1
             message = "NOT ARCHIVED " + message
         print(f"{stamp} {message}", flush=True)
@@ -333,6 +339,7 @@ def main(argv=None) -> int:
     a.add_argument("--intraday", action="store_true", help="timestamped snapshot during the session")
     a.add_argument("--force", action="store_true", help="overwrite a close already archived")
     a.add_argument("--catch-up", action="store_true", help="fill missed days; skips are not errors")
+    a.add_argument("--preopen", action="store_true", help="keep the close republished with the overnight open interest")
     a.add_argument("--log", action="store_true", help="append the output to data/archive.log (scheduled runs)")
     sub.add_parser("rebuild", help="recompute data/history.csv from data/raw")
     sub.add_parser("install", help="schedule the archive (macOS, Windows; prints a crontab line elsewhere)")
@@ -349,7 +356,9 @@ def main(argv=None) -> int:
         if args.log:               # in Python, not a shell redirect: the same on every scheduler
             LOG.parent.mkdir(exist_ok=True)
             sys.stdout = sys.stderr = open(LOG, "a", encoding="utf-8", buffering=1)
-        return archive(args.symbols, args.intraday, args.force, args.catch_up)
+        if args.intraday and args.preopen:
+            ap.error("--intraday and --preopen are exclusive")
+        return archive(args.symbols, args.intraday, args.force, args.catch_up, args.preopen)
     if args.command == "rebuild":
         hist, failed = study.rebuild_history()
         print(f"history rebuilt: {len(hist)} rows")

@@ -17,9 +17,9 @@ def kpis(p: dict, band: dict) -> None:
     if band["indeterminate"]:
         regime = "Indeterminate: the zero-gamma band contains spot"
     elif s["regime"] == "positive":
-        regime = "Positive gamma: dealers dampen moves"
+        regime = "Positive gamma: lower next-day vol (SPX history)"
     else:
-        regime = "Negative gamma: dealers amplify moves"
+        regime = "Negative gamma: higher next-day vol, no trend (SPX history)"
     gap = "" if q["spot_gap_bp"] is None else f"vendor {ui.px(q['spot_quoted'])} ({ui.sgn(q['spot_gap_bp'], 1)} bp)"
     zg = s["zero_gamma"]
     zg_note = (f"{ui.pct(s['zero_gamma_distance_pct'])} · {ui.sigmas(s['zero_gamma_sigmas'])}"
@@ -47,7 +47,7 @@ def kpis(p: dict, band: dict) -> None:
 
     if s["trapdoor"]:
         st.warning(f"Trapdoor: spot is below zero gamma and the put wall ({ui.strike(s['put_wall'])}) is "
-                   f"{ui.sigmas(s['put_wall_sigmas'])} away. Below it, dealer hedging accelerates the fall.",
+                   f"{ui.sigmas(s['put_wall_sigmas'])} away. Below it, dealer hedging would add to a fall (mechanics, not a measured forecast).",
                    icon=":material/warning:")
 
 
