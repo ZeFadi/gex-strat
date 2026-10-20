@@ -23,7 +23,7 @@ def kpis(p: dict, band: dict) -> None:
     gap = "" if q["spot_gap_bp"] is None else f"vendor {ui.px(q['spot_quoted'])} ({ui.sgn(q['spot_gap_bp'], 1)} bp)"
     zg = s["zero_gamma"]
     zg_note = (f"{ui.pct(s['zero_gamma_distance_pct'])} · {ui.sigmas(s['zero_gamma_sigmas'])}"
-               + ("" if band["low"] is None else f" · band {ui.px(band['low'], 0)}–{ui.px(band['high'], 0)}")
+               + ("" if band["low"] is None else f" · band {ui.px(band['low'], 0)} to {ui.px(band['high'], 0)}")
                if zg else f"no sign change within ±{100 * p['profile']['half_range']:.0f}%")
 
     def wall(name: str, side: str) -> None:

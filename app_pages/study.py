@@ -84,7 +84,7 @@ st.markdown(f"Realized vol of t+1 averaged **{v['negative_gamma']:.1f}%** after 
             f"Welch t {v['welch_t']:+.2f}: {'significant' if significant else 'not significant'} at 5%).")
 shown = means.loc[(means["n_positive"] + means["n_negative"]) > 0].reset_index()
 shown["outcome"] = shown["outcome"].map(OUTCOMES)
-shown["indeterminate"] = shown["indeterminate"].map(lambda x: "—" if pd.isna(x) else f"{x:.2f}")   # often no such day
+shown["indeterminate"] = shown["indeterminate"].map(lambda x: "-" if pd.isna(x) else f"{x:.2f}")   # often no such day
 ui.table(shown.rename(columns=MEANS_COLUMNS)[list(MEANS_COLUMNS.values())],
          {**dict.fromkeys(("Positive γ", "Negative γ", "Positive − negative"), "%.2f"),
           "Welch t": "%+.2f"}, alt="Next-day outcomes by regime")

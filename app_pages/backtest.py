@@ -91,7 +91,7 @@ cols = {"strategy": "Strategy", "trial": "Trial", "sharpe": "Sharpe", "sharpe_se
 shown = view[list(cols)].rename(columns=cols).copy()
 for c in ("Return %", "Max DD %", "Worst day %", "Costs %/yr"):
     shown[c] = 100 * shown[c]
-shown["Deflated SR"] = shown["Deflated SR"].map(lambda x: "—" if pd.isna(x) else f"{100 * x:.1f}%")   # benchmarks: none
+shown["Deflated SR"] = shown["Deflated SR"].map(lambda x: "-" if pd.isna(x) else f"{100 * x:.1f}%")   # benchmarks: none
 ui.table(shown, {"Sharpe": "%.2f", "SE": "%.2f", "CI 5%": "%.2f", "CI 95%": "%.2f",
                  "t (NW)": "%+.2f", "Return %": "%+.1f", "Max DD %": "%.1f", "Worst day %": "%.1f",
                  "Turnover": "%.0f", "Costs %/yr": "%.2f"}, alt="Backtest performance", height=36 * (len(shown) + 1) + 2)

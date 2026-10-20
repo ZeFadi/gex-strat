@@ -43,7 +43,7 @@ if band["indeterminate"]:
     st.warning("The range contains spot: the sign of the regime depends on an assumption, not on the data.",
                icon=":material/warning:")
 else:
-    st.caption(f"Range {ui.px(band['low'])} – {ui.px(band['high'])}, spot {ui.px(ctx.market.spot)}: "
+    st.caption(f"Range {ui.px(band['low'])} to {ui.px(band['high'])}, spot {ui.px(ctx.market.spot)}: "
                "the regime does not depend on these assumptions.")
 
 left, right = st.columns(2, gap="large")
