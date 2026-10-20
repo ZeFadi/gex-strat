@@ -28,7 +28,7 @@ def offline(monkeypatch):
 
     monkeypatch.setattr(data, "fetch", fetch)
     monkeypatch.setattr(study, "load_history", lambda *a, **k: pd.DataFrame())
-    monkeypatch.setattr(backtest, "register_trials", lambda *a, **k: 0)   # never touch the real trials log
+    monkeypatch.setattr(backtest, "_append_log", lambda *a, **k: 0)        # never touch the real trials logs
     return calls
 
 

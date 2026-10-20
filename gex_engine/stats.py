@@ -13,6 +13,13 @@ Performance statistics of a daily excess-return series, with their uncertainty.
 Returns are summed, not compounded: positions are vol-scaled weights on notional, so the
 cumulative P&L is the sum of daily returns on a constant capital.
 
+Forecast evaluation
+-------------------
+* `qlike`: the QLIKE loss of a variance forecast (Patton, 2011: robust to noise in the realized
+  measure, so forecasts are ranked as on the true variance).
+* `hac_mean_test`: Newey-West t-test that a series has a positive mean; with loss differentials
+  it is the Diebold-Mariano test, with the Clark-West adjustment the nested-model test.
+
 Regressions use Newey-West (HAC, Bartlett kernel) standard errors, implemented with numpy so the
 project needs no statsmodels; the tests check the formula against a direct computation.
 """
@@ -131,3 +138,27 @@ def deflated_sharpe(sr_annual: float, n_trials: int, days: int, skew: float, kur
                               + EULER_GAMMA * norm.ppf(1 - 1 / (n_trials * np.e)))
     denom = np.sqrt(max(1 - skew * sr + (kurt - 1) / 4 * sr**2, 1e-12))
     return float(norm.cdf((sr - sr0) * np.sqrt(days - 1) / denom))
+
+
+# --------------------------------------------------------------------------- forecast evaluation
+
+def qlike(y, h) -> np.ndarray:
+    """QLIKE loss of variance forecasts h for realized variances y: y/h - ln(y/h) - 1 (zero when h = y)."""
+    r = np.asarray(y, float) / np.asarray(h, float)
+    return r - np.log(r) - 1.0
+
+
+def hac_mean_test(x, lags: int) -> dict:
+    """Mean of x, its Newey-West t-statistic (Bartlett, `lags`) and one-sided p-value for mean > 0.
+
+    Same estimator as `newey_west_ols` on a constant: var(mean) = (g0 + 2 sum_l w_l g_l) / n,
+    g_l the lag-l autocovariance, w_l = 1 - l / (L + 1).
+    """
+    x = np.asarray(x, float)
+    n = len(x)
+    u = x - x.mean()
+    s = u @ u / n
+    for lag in range(1, lags + 1):
+        s += 2.0 * (1.0 - lag / (lags + 1.0)) * (u[lag:] @ u[:-lag]) / n
+    t = float(x.mean() / np.sqrt(s / n))
+    return {"mean": float(x.mean()), "t": t, "p": float(norm.sf(t)), "n": n}

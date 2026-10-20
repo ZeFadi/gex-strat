@@ -54,6 +54,22 @@ Execution: the position decided at the close of t earns the return of session t 
 (lag 2 primary, lag 1 optimistic; config.EXECUTION_LAGS). Positions are scaled to
 config.VOL_TARGET with the asset's trailing vol known at t; costs are charged on every change
 of the held position. All returns are daily excess returns, summed (not compounded).
+
+Vol forecast trial
+------------------
+PRE-REGISTERED (config.py "vol forecast trial" block, METHODOLOGY.md section 14). The rules
+above fail; the one robust result is that low gamma predicts higher next-session vol. Does
+it improve a forecast, out of sample, beyond what HAR and VIX already know?
+
+* target: the Parkinson variance of session t+1 (annualized, %^2);
+* base model, HAR-X: today's variance and its 5- and 22-session means, VIX^2, today's ES
+  return and a down-day dummy; GEX model: the same plus the GEX percentile rank among the last
+  252 sessions;
+* OLS refitted every 21 sessions on an expanding window, first fit after 1000 rows; a forecast
+  made at the close of t uses only rows whose target is known at t;
+* decision: Diebold-Mariano on the QLIKE loss over the whole walk-forward period, one-sided
+  at 5%. Secondary, reported only: MSE, Clark-West, the sessions from config.OOS_START,
+  Mincer-Zarnowitz regressions.
 """
 
 from __future__ import annotations
@@ -63,6 +79,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from . import config, stats
 from .stats import newey_west_ols
@@ -334,17 +351,104 @@ def register_trials(table: pd.DataFrame, data_dir: Path = config.DATA_DIR) -> in
     A trial is (rule, regime, lag, cost multiplier, configuration). Benchmarks are not trials.
     Re-running the same configuration does not add rows.
     """
-    path = Path(data_dir) / TRIALS_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    log = pd.read_csv(path) if path.exists() else pd.DataFrame(columns=["key", "first_run_utc"])
     cfg = (f"vt{config.VOL_TARGET}-w{config.VOL_WINDOW}-q{config.LOW_GAMMA_QUANTILE}"
            f"-h{config.REGIME_MIN_HISTORY}-oos{config.OOS_START}")
     trials = table.loc[table["trial"] & (table["sample"] == "full")]
     keys = {f"{t.strategy} | lag{t.lag} | {RULE_VERSION.get(t.strategy.split(' | ')[0], 'v1')} | {cfg}"
             .replace(" | v1 | ", " | ") for t in trials.itertuples()}
-    new = sorted(keys - set(log["key"]))
+    return _append_log(Path(data_dir) / TRIALS_FILE, keys)
+
+
+def _append_log(path: Path, keys) -> int:
+    """Add the keys not yet in the append-only log at `path`, stamped now; return its row count."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    log = pd.read_csv(path) if path.exists() else pd.DataFrame(columns=["key", "first_run_utc"])
+    new = sorted(set(keys) - set(log["key"]))
     if new:
         now = pd.Timestamp.now(tz="UTC").isoformat(timespec="seconds")
         log = pd.concat([log, pd.DataFrame({"key": new, "first_run_utc": now})], ignore_index=True)
         log.to_csv(path, index=False, lineterminator="\n")
     return len(log)
+
+
+# --------------------------------------------------------------------------- vol forecast trial
+
+FORECAST_TRIALS_FILE = Path("backtest") / "forecast_trials.csv"
+FORECAST_BASE = ("rv_d", "rv_w", "rv_m", "vix2", "es_return", "down_day")
+FORECAST_GEX = (*FORECAST_BASE, "gex_pct")
+
+
+def forecast_frame(d: pd.DataFrame) -> pd.DataFrame:
+    """Target and regressors of the forecast trial, one row per session t, known at its close.
+
+    y is the Parkinson variance of the next session of the calendar (annualized, %^2).
+    """
+    rv2 = d["rv_parkinson"] ** 2
+    return pd.DataFrame({
+        "y": rv2.shift(-1),
+        "rv_d": rv2, "rv_w": rv2.rolling(5).mean(), "rv_m": rv2.rolling(22).mean(),
+        "vix2": d["vix"] ** 2, "es_return": 100.0 * d["es"], "down_day": (d["es"] < 0).astype(float),
+        "gex_pct": d["gex"].rolling(config.FORECAST_RANK_WINDOW).rank(pct=True),
+    }, index=d.index)
+
+
+def walk_forward(f: pd.DataFrame, features) -> pd.Series:
+    """Raw (unfloored) out-of-sample OLS forecasts of f["y"] from `features`, expanding window.
+
+    The forecast at row i uses rows 0..i-1 only: row j's target is the session after j, known
+    at the close of row j + 1 <= i. Refit at rows FORECAST_MIN_TRAIN, + FORECAST_REFIT_EVERY, ...
+    """
+    X = np.column_stack([np.ones(len(f)), f[list(features)].to_numpy(float)])
+    y = f["y"].to_numpy(float)
+    out = np.full(len(f), np.nan)
+    for start in range(config.FORECAST_MIN_TRAIN, len(f), config.FORECAST_REFIT_EVERY):
+        known = np.isfinite(y[:start])
+        beta = np.linalg.lstsq(X[:start][known], y[:start][known], rcond=None)[0]
+        stop = min(start + config.FORECAST_REFIT_EVERY, len(f))
+        out[start:stop] = X[start:stop] @ beta
+    return pd.Series(out, index=f.index)
+
+
+def forecasts(d: pd.DataFrame) -> pd.DataFrame:
+    """Realized y and the raw forecasts of both models, on the same rows (all regressors known)."""
+    f = forecast_frame(d).dropna(subset=list(FORECAST_GEX))
+    return pd.DataFrame({"y": f["y"], "base": walk_forward(f, FORECAST_BASE), "gex": walk_forward(f, FORECAST_GEX)})
+
+
+def forecast_test(d: pd.DataFrame, data_dir: Path = config.DATA_DIR) -> dict:
+    """The pre-registered forecast trial: losses, Diebold-Mariano, Clark-West, Mincer-Zarnowitz, verdict."""
+    raw = forecasts(d).dropna()
+    floor = config.FORECAST_FLOOR
+    floored = {m: int((raw[m] < floor).sum()) for m in ("base", "gex")}
+    zero_range = int((raw["y"] <= 0).sum())
+    ev = raw.loc[raw["y"] > 0].assign(base=lambda x: x["base"].clip(lower=floor),
+                                      gex=lambda x: x["gex"].clip(lower=floor))
+    lags = config.FORECAST_HAC_LAGS
+    rows = []
+    for sample, part in (("walk-forward", ev), (f"from {config.OOS_START}", ev.loc[ev.index >= pd.Timestamp(config.OOS_START)])):
+        if len(part) <= 2 * lags:                       # e.g. no session after OOS_START yet
+            continue
+        y, b, a = part["y"], part["base"], part["gex"]
+        lb, la = stats.qlike(y, b), stats.qlike(y, a)
+        dm = stats.hac_mean_test(lb - la, lags)
+        mse = stats.hac_mean_test((y - b) ** 2 - (y - a) ** 2, lags)
+        cw = stats.hac_mean_test((y - b) ** 2 - ((y - a) ** 2 - (b - a) ** 2), lags)
+        rows.append({"sample": sample, "start": part.index.min(), "end": part.index.max(), "n": len(part),
+                     "qlike_base": lb.mean(), "qlike_gex": la.mean(), "qlike_gain_pct": 100 * (1 - la.mean() / lb.mean()),
+                     "dm_t": dm["t"], "dm_p": dm["p"], "mse_dm_t": mse["t"], "clark_west_t": cw["t"], "clark_west_p": cw["p"]})
+    mz = []
+    for model in ("base", "gex"):
+        r = newey_west_ols(ev["y"], ev[[model]], lags=lags)
+        mz.append({"model": model, "alpha": r["beta"][0], "beta": r["beta"][1], "t_beta_eq_1": (r["beta"][1] - 1) / r["se"][1],
+                   "r2": r["r2"]})
+    f = forecast_frame(d).dropna()
+    full = newey_west_ols(f["y"], f[list(FORECAST_GEX)], lags=lags)
+    table = pd.DataFrame(rows)
+    cfg = (f"w{config.FORECAST_RANK_WINDOW}-min{config.FORECAST_MIN_TRAIN}-refit{config.FORECAST_REFIT_EVERY}"
+           f"-floor{config.FORECAST_FLOOR}-hac{lags}")
+    return {"table": table, "mincer_zarnowitz": pd.DataFrame(mz),
+            "gex_coef": float(full["beta"][-1]), "gex_t": float(full["t"][-1]),
+            "passed": bool(table["dm_t"].iloc[0] > norm.isf(config.FORECAST_ALPHA)),
+            "floored": floored, "zero_range_sessions": zero_range,
+            "n_trials": _append_log(Path(data_dir) / FORECAST_TRIALS_FILE,
+                                    [f"har-x + gex_pct | parkinson variance t+1 | qlike dm | {cfg}"])}

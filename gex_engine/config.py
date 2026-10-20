@@ -181,3 +181,15 @@ BOOTSTRAP_BLOCK = 20
 BOOTSTRAP_DRAWS = 2000
 PLACEBO_DRAWS = 500
 SEED = 20261015
+
+# --------------------------------------------------------------------------- vol forecast trial
+
+# PRE-REGISTERED on 2026-10-20 (METHODOLOGY.md section 14), committed before any run on
+# market data. Does the GEX regime improve a HAR-X forecast of next-session realized
+# variance out of sample? Changing any of these is a new trial (data/backtest/forecast_trials.csv).
+FORECAST_RANK_WINDOW = 252     # GEX percentile rank among the trailing sessions, t included
+FORECAST_MIN_TRAIN = 1000      # complete rows before the first fit
+FORECAST_REFIT_EVERY = 21      # sessions between two refits; the window expands
+FORECAST_FLOOR = 1.0           # floor of a variance forecast, annualized %^2 (1 vol point)
+FORECAST_HAC_LAGS = 20         # Newey-West lags of the loss differentials
+FORECAST_ALPHA = 0.05          # one-sided: the GEX model must lower the QLIKE loss

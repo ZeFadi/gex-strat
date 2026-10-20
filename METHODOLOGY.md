@@ -328,6 +328,46 @@ Primary execution (close t+1), costs ×1, full sample 2012-2026, net Sharpe [5%,
 
 **Candidate next trials** (each to be approved, registered and logged before running):
 1. short vol sized down in negative gamma instead of flipped;
-2. a variance-risk-premium rule using a GEX-augmented realized-vol forecast;
-3. a normalized GEX (GEX / S², or a 1-year rolling quantile);
+2. a variance-risk-premium rule using a GEX-augmented realized-vol forecast (its first step, the forecast itself, is section 14);
+3. a normalized GEX (GEX / S², or a 1-year rolling quantile; the rolling rank is used in section 14);
 4. the post-hoc reversed rules, explicitly labelled as such.
+
+## 14. Vol forecast trial (pre-registered 2026-10-20)
+
+**Question.** Section 13 leaves one robust result: a low or negative GEX at the close predicts a higher realized vol for the next session, beyond VIX, the memory of vol and the leverage effect. Does that information improve a volatility **forecast** out of sample, against a model that already has HAR and VIX? If it does not, no overlay or variance-risk-premium rule can be built on it.
+
+Fixed before any run on market data, in this commit: `config.py` "vol forecast trial" block, `backtest.forecast_test`, synthetic tests. Any change to the items below is a new trial, logged in `data/backtest/forecast_trials.csv` (append-only, separate from the backtest's log, so its N of 16 does not move).
+
+**Data.** `backtest.dataset()`, as in section 13: SqueezeMetrics' SPX GEX, Bloomberg closes (SPX high and low, SPXT, 3-month rate, VIX), sessions where everything exists.
+
+**Target.** $y_{t+1}$ = Parkinson variance of the next session, annualized, in %²: $\left(100\, \ln(H/L)\right)^2 \cdot 252 / (4 \ln 2)$.
+
+**Models**, OLS with a constant, every regressor known at the close of $t$:
+
+| | Regressors |
+|---|---|
+| Base (HAR-X) | $RV_t$, mean of $RV$ over the last 5 and 22 sessions (variances), $VIX_t^2$, ES return of $t$ in %, down-day dummy |
+| GEX | the same + `gex_pct`: rank of $GEX_t$ among the last 252 sessions, $t$ included, in (0, 1] |
+
+The rank is the normalisation recommended for a non-stationary GEX in dollars (section 13.1, limits), and has no threshold to choose.
+
+**Walk-forward.** Both models are estimated on the same rows (all regressors known). The first fit is made at row 1,000, on rows 0 to 999. The models are then refitted every 21 sessions on an expanding window. A forecast made at the close of row $i$ uses only rows $0..i-1$: the target of row $j$ is session $j+1$, known at the close of $j+1 \le i$. Forecasts are floored at 1 %² (one vol point) so that QLIKE is defined, and the number of floored forecasts is reported. Sessions with a zero high-low range have no defined QLIKE; they are dropped and counted.
+
+**Decision** (primary, one test).
+* The test is Diebold-Mariano on the QLIKE loss $L = y/h - \ln(y/h) - 1$. QLIKE ranks forecasts as on the true variance even with a noisy realized measure (Patton, 2011).
+* The loss differential is $L_{base} - L_{GEX}$. Its mean is tested with a Newey-West t-statistic using 20 lags, one-sided, over the whole walk-forward period.
+* **Pass** if $t > 1.645$ (5%).
+  * **Pass:** a vol-targeting overlay on ES (base vs GEX forecast) becomes the next trial. It will be specified and committed before it is run.
+  * **Fail:** the overlay and variance-risk-premium line stops here, and the Backtest page says so.
+
+**Reported, not decisive.**
+* Diebold-Mariano on the MSE loss.
+* Clark-West, the test for nested models on MSE.
+* The same statistics on the sessions from `OOS_START` (2024-01-01).
+* Mincer-Zarnowitz regressions $y = \alpha + \beta h$.
+* The full-sample `gex_pct` coefficient.
+
+**What this trial can and cannot show.**
+* Diebold-Mariano is conservative for nested models. Under the null, the estimation noise of the extra coefficient penalises the larger model (Clark and McCracken); on the synthetic null of the tests this pushes the statistic negative. With one extra parameter and thousands of observations the bias is small, but a marginal effect can be missed. Clark-West, which corrects it, is reported.
+* It is a **pseudo** out-of-sample test. The hypothesis comes from the mechanism regression of section 13, estimated on the whole 2012-2026 sample. The walk-forward tests the forecasting design, not a fresh sample. The only fresh evidence will be the sessions after the price export (2026-09-18), and the dated `history.csv` going forward.
+* Variance-level OLS gives a lot of weight to spikes (March 2020) and can produce negative forecasts. These are floored and counted. If many are floored, that is a limit of this trial; a log-HAR would be a new trial, not a fix.

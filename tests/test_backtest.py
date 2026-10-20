@@ -129,3 +129,62 @@ def test_trials_log_is_append_only(tmp_path):
     assert backtest.register_trials(t, tmp_path) == 1                # same configuration: no new row
     t2 = t.assign(lag=1)
     assert backtest.register_trials(t2, tmp_path) == 2
+
+
+# --------------------------------------------------------------------------- vol forecast trial
+
+def _vol_world(n=2600, effect=150.0, seed=3):
+    """Sessions where the next variance rises by `effect` (%^2) times (1 - GEX percentile rank).
+
+    Log-variance is AR(1) around a 16% vol, VIX^2 sees it with noise, the realized Parkinson
+    variance is the true one times a mean-one lognormal error.
+    """
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range("2012-01-02", periods=n)
+    gex = pd.Series(np.cumsum(rng.normal(size=n)) * 0.2 + rng.normal(size=n), index=idx)
+    pct = gex.rolling(config.FORECAST_RANK_WINDOW).rank(pct=True).fillna(0.5).to_numpy()
+    lv = np.empty(n)
+    lv[0] = np.log(256.0)
+    for t in range(1, n):
+        lv[t] = np.log(256.0) + 0.97 * (lv[t - 1] - np.log(256.0)) + 0.2 * rng.normal()
+    true = np.exp(lv) + effect * np.r_[0.0, 1.0 - pct[:-1]]          # variance of t set by GEX at t-1
+    realized = true * np.exp(rng.normal(scale=0.5, size=n) - 0.125)
+    return pd.DataFrame({"rv_parkinson": np.sqrt(realized), "vix": np.sqrt(1.2 * true * np.exp(rng.normal(scale=0.1, size=n))),
+                         "es": rng.normal(scale=np.sqrt(true) / 100 / np.sqrt(252)), "gex": gex}, index=idx)
+
+
+def test_hac_mean_test_matches_the_regression_estimator():
+    x = np.random.default_rng(1).normal(0.1, 1.0, 500)
+    t = stats.hac_mean_test(x, 7)
+    assert t["t"] == pytest.approx(stats.newey_west_ols(x, np.empty((500, 0)), lags=7)["t"][0], rel=1e-12)
+    assert t["p"] == pytest.approx(norm.sf(t["t"]))
+    assert stats.qlike([2.0], [2.0])[0] == 0.0 and stats.qlike([2.0], [1.0])[0] > 0
+
+
+def test_forecast_has_no_look_ahead():
+    """Everything after the close of t, the target of t included, can change: the forecast for t+1 cannot."""
+    d = _vol_world()
+    rows = backtest.forecasts(d).dropna(subset=["base"]).index
+    first = rows[0]
+    for t in (first, rows[config.FORECAST_REFIT_EVERY], rows[config.FORECAST_REFIT_EVERY + 7]):
+        later = d.index > t
+        d2 = d.copy()
+        d2.loc[later, "rv_parkinson"] *= 3.0
+        d2.loc[later, "vix"] += 10.0
+        d2.loc[later, "es"] *= -1.0
+        d2.loc[later, "gex"] *= 5.0
+        a, b = backtest.forecasts(d).loc[:t], backtest.forecasts(d2).loc[:t]
+        assert (a[["base", "gex"]].dropna() == b[["base", "gex"]].dropna()).all().all()
+    assert rows[0] == backtest.forecast_frame(d).dropna(subset=list(backtest.FORECAST_GEX)).index[config.FORECAST_MIN_TRAIN]
+
+
+def test_forecast_finds_a_simulated_gex_effect(tmp_path):
+    res = backtest.forecast_test(_vol_world(), data_dir=tmp_path)
+    assert res["passed"] and res["table"]["dm_t"].iloc[0] > 3 and res["gex_coef"] < 0
+    assert list(res["table"]["sample"]) == ["walk-forward"]         # this world ends before OOS_START
+    assert res["n_trials"] == 1 and backtest.forecast_test(_vol_world(), data_dir=tmp_path)["n_trials"] == 1
+
+
+def test_forecast_finds_nothing_without_an_effect(tmp_path):
+    res = backtest.forecast_test(_vol_world(effect=0.0, seed=4), data_dir=tmp_path)
+    assert not res["passed"]
