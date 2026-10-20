@@ -4,6 +4,10 @@ A local research tool for dealer gamma, vanna and charm exposure on listed US in
 
 Formulas, conventions, validation and limits: [METHODOLOGY.md](METHODOLOGY.md).
 
+![Monitor page: SPX at the close of 16 October 2026](assets/screenshots/monitor.png)
+
+*Monitor page, SPX, replaying the archived close of Friday 16 October 2026: negative gamma, spot 1.6 one-day sigma below a zero gamma of 7,725.*
+
 ## Start in five minutes
 
 Python 3.11 or later. The repository carries the data (CBOE archive, history, SqueezeMetrics GEX), so a fresh clone starts where the archive stands. The one exception is the backtest's licensed price file (see Data).
@@ -44,6 +48,22 @@ The sidebar sets the underlying, the expiry view (all, front, or one date) and t
 | **Study** | Has the regime predicted next-day realized vol, range and wall behaviour on the archived history? Statistics appear once 30 consecutive day pairs are archived. |
 | **Flow** | Given a file of today's option trades: flow-signed GEX (Lee-Ready, EMO or BVC) against the structural view, and the pressure on each wall. |
 | **Backtest** | Does trading the gamma regime pay, net of costs, against the same rules without it and against a VIX filter? Pre-registered rules on ES and VIX futures, with deflated Sharpe, bootstrap intervals, placebo and the vol-prediction mechanism. Needs the licensed price file `data/market/prices.csv`, not in the repository (see Data). |
+
+### Screenshots
+
+All screenshots replay the same archived close (sidebar, Data: "Archived close Fri 16 Oct 2026"), so they can be reproduced on any machine with the repository's data.
+
+**Scenarios.** Hedge flows dealers need after a shock to implied vol, spot or time, and zero gamma under each alternative assumption.
+
+![Scenarios page](assets/screenshots/scenarios.png)
+
+**Study.** Regime against next-session outcomes on our own histories; here the July to December 2022 end-of-day files.
+
+![Study page](assets/screenshots/study.png)
+
+**Backtest.** Verdict of the pre-registered rules, the volatility mechanism and the out-of-sample forecast test, 2012 to 2026.
+
+![Backtest page](assets/screenshots/backtest.png)
 
 ## How it works
 
@@ -166,5 +186,6 @@ gex_engine/
     charts.py       Plotly figures
 data/               raw/ archive, history.csv, history_eod.csv, backtest/ logs, market/ and external/ inputs (archive.log, vendor/ and prices.csv stay local)
 tests/              pytest and frozen fixtures
+assets/screenshots/ the pages as shown in this README
 LICENSE, NOTICE     Apache 2.0 for the code; the data keeps its providers' terms
 ```
