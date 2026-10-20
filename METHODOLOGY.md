@@ -203,7 +203,7 @@ Two consistency checks guard the dataset:
 
 **Statistics.** Each needs at least 30 pairs.
 * Conditional means by regime, with Welch t-statistics between positive and negative; indeterminate days are shown apart and kept out of the comparison.
-* OLS of each outcome on the features with Newey-West standard errors: Bartlett kernel, $L = \lfloor 4 (n/100)^{2/9} \rfloor$, implemented in numpy. A feature that is constant over the sample is dropped and named.
+* OLS of each outcome on one regime measure, the net GEX z-score, and the two vol controls, with Newey-West standard errors. The distance to zero gamma is not added beside it: on SPX 2022 H2 the two correlate at -0.90, and together they gave coefficients of -4.7 (t -2.0) and -2.5 (t -2.3) that read as two effects, while each alone, with the controls, has none (t 0.03 and -0.55). Standard errors: Bartlett kernel, $L = \lfloor 4 (n/100)^{2/9} \rfloor$, implemented in numpy. A feature that is constant over the sample is dropped and named.
 * Touch and hold frequencies of the walls.
 
 The tests check:
@@ -234,7 +234,7 @@ On the same quotes, the CBOE provider and this one give the same book (net GEX w
   * Consequence for section 13, on this sample: rank-based regimes (`gex_low`) should carry over to our engine; sign-based ones (`gex_sign`) should not.
 * **Next session, SPX** (126 pairs, close-to-close vol).
   * Next-session vol is 14.9% after a positive-gamma close and 19.3% after a negative one (Welch t −1.45).
-  * In the regression with the next session's implied vol and today's vol, the GEX z-score has a coefficient of −4.7 vol points per standard deviation (t −2.0), and the distance to zero gamma −2.5 per one-day σ (t −2.3).
+  * Once the next session's implied vol and today's vol are controlled for, the regime adds nothing on this sample: the GEX z-score has a coefficient of 0.05 vol point per standard deviation (t 0.03, 106 pairs). The gap in raw means is already in implied vol.
   * **SPY**: 10.2% vs 19.4% (t −3.4).
 * These are six months of one regime. They are consistent with section 13's mechanism and show the engine works on history; they are not evidence on their own. The paid archive would turn them into a 2012-2026 test.
 

@@ -126,9 +126,9 @@ def test_inconsistent_ohlc_is_not_used():
 
 def test_constant_feature_is_dropped_not_fatal():
     h = _history()
-    h["zero_gamma"] = h["spot"]                         # distance to zero gamma always 0
+    h["atm_vol_1d"] = 0.0                               # implied vol of the next session always 0
     reg = study.run(h, "SYN")["regression"]
-    assert "zero_gamma_sigmas" not in reg["term"].tolist() and reg["dropped"].iloc[0] == "zero_gamma_sigmas"
+    assert "iv_next" not in reg["term"].tolist() and reg["dropped"].iloc[0] == "iv_next"
 
 
 def _payload(symbol, **_):

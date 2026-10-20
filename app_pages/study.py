@@ -106,7 +106,9 @@ else:
     r = reg.iloc[0]
     st.caption(f"OLS on {int(r['n'])} day pairs, R² {r['r2']:.2f}, Newey-West errors ({int(r['lags'])} lags). "
                "Each effect holds the others fixed: a negative net GEX effect means lower gamma, higher vol the next "
-               "day, beyond what implied and realized vol already say. |t| above 2: unlikely to be chance."
+               "day, beyond what implied and realized vol already say. |t| above 2: unlikely to be chance. Pairs "
+               "before 20 closes of z-score history are left out. The distance to zero gamma is not added: it moves "
+               "with net GEX (correlation about -0.9), and the two together give unstable coefficients."
                + (f" Dropped (constant): {r['dropped']}." if r["dropped"] else ""))
 
 # ---------------------------------------------------------------- walls

@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from . import config
+
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
 INK_SECONDARY = "#52514e"
@@ -205,7 +207,8 @@ def history(hist, height: int = 400) -> go.Figure:
                         customdata=sub["net_gex"] / 1e9,
                         hovertemplate="%{x|%d %b %Y}<br>spot %{y:,.0f}<br>net GEX %{customdata:+.1f} $bn<extra></extra>")
     _layout(fig, "Spot and zero gamma at each close",
-            "a break in the dashed line: no zero gamma within ±6% of spot that day", height)
+            f"a break in the dashed line: no zero gamma within ±{100 * config.PROFILE_RANGE:.0f}% of spot that day",
+            height)
     fig.update_layout(showlegend=True, margin=dict(b=72), legend=dict(y=-0.2))
     fig.update_xaxes(type="date", tickformat="%d %b %y", nticks=10)
     fig.update_yaxes(tickformat=",.0f")

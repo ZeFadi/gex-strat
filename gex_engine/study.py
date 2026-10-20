@@ -63,7 +63,10 @@ comparable to the close-to-close outcome, which includes the weekend; Garman-Kla
 intraday only.
 
 Statistics: conditional means by regime with Welch t-statistics, and OLS of each outcome
-on the features with Newey-West (HAC, Bartlett kernel) standard errors. Implemented with
+on ONE regime measure (the net GEX z-score) and the two vol controls, with Newey-West (HAC,
+Bartlett kernel) standard errors. The distance to zero gamma is not added beside it: the two
+move together (correlation -0.90 on SPX, 2022 H2), and together they give unstable
+coefficients of opposite signs that read as two effects when there is none. Implemented with
 numpy, so the app needs no statsmodels; the tests check the HAC formula against a direct
 computation and the estimator against a simulated effect.
 """
@@ -345,7 +348,7 @@ def conditional_means(d: pd.DataFrame, outcomes=("next_rv_gk", "next_rv_cc", "ne
 
 
 def regression(d: pd.DataFrame, outcome: str = "next_rv_gk",
-               features=("gex_z", "zero_gamma_sigmas", "iv_next", "rv_today")) -> pd.DataFrame | None:
+               features=("gex_z", "iv_next", "rv_today")) -> pd.DataFrame | None:
     """OLS of `outcome` on `features` with Newey-West errors; None if too few complete rows.
 
     A feature constant over the sample (a vendor field that never moved) is dropped and named
@@ -386,6 +389,6 @@ def run(hist: pd.DataFrame, symbol: str) -> dict:
         out["measure"] = "Garman-Klass" if gk else "close-to-close"
         out["means"] = conditional_means(d)
         out["regression"] = (regression(d) if gk else
-                             regression(d, "next_rv_cc", ("gex_z", "zero_gamma_sigmas", "iv_next", "rv_today_cc")))
+                             regression(d, "next_rv_cc", ("gex_z", "iv_next", "rv_today_cc")))
         out["walls"] = wall_behaviour(d)
     return out
