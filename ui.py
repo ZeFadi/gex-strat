@@ -94,6 +94,12 @@ def backtest_report(cost_mult: float, data_stamp: float) -> dict:
     return backtest.report(backtest_dataset(data_stamp), cost_mult=cost_mult)
 
 
+@st.cache_data(max_entries=2, show_spinner="Running the pre-registered vol forecast trial...")
+def forecast_report(data_stamp: float) -> dict:
+    """backtest.forecast_test on the frozen data; `data_stamp` (files' mtime) invalidates the cache."""
+    return backtest.forecast_test(backtest_dataset(data_stamp))
+
+
 BACKTEST_INPUTS = (backtest.PRICES_FILE, backtest.SQUEEZE_FILE)
 
 

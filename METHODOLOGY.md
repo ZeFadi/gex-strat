@@ -328,7 +328,7 @@ Primary execution (close t+1), costs ×1, full sample 2012-2026, net Sharpe [5%,
 
 **Candidate next trials** (each to be approved, registered and logged before running):
 1. short vol sized down in negative gamma instead of flipped;
-2. a variance-risk-premium rule using a GEX-augmented realized-vol forecast (its first step, the forecast itself, is section 14);
+2. a variance-risk-premium rule using a GEX-augmented realized-vol forecast (its first step, the forecast itself, failed: section 14.1);
 3. a normalized GEX (GEX / S², or a 1-year rolling quantile; the rolling rank is used in section 14);
 4. the post-hoc reversed rules, explicitly labelled as such.
 
@@ -371,3 +371,22 @@ The rank is the normalisation recommended for a non-stationary GEX in dollars (s
 * Diebold-Mariano is conservative for nested models. Under the null, the estimation noise of the extra coefficient penalises the larger model (Clark and McCracken); on the synthetic null of the tests this pushes the statistic negative. With one extra parameter and thousands of observations the bias is small, but a marginal effect can be missed. Clark-West, which corrects it, is reported.
 * It is a **pseudo** out-of-sample test. The hypothesis comes from the mechanism regression of section 13, estimated on the whole 2012-2026 sample. The walk-forward tests the forecasting design, not a fresh sample. The only fresh evidence will be the sessions after the price export (2026-09-18), and the dated `history.csv` going forward.
 * Variance-level OLS gives a lot of weight to spikes (March 2020) and can produce negative forecasts. These are floored and counted. If many are floored, that is a limit of this trial; a log-HAR would be a new trial, not a fix.
+
+### 14.1 Result (first run 2026-10-20 12:23 UTC, after the pre-registration commit; data to 2026-09-17)
+
+| Sample | n | QLIKE HAR-X | QLIKE GEX | Gain | DM t (QLIKE) | DM t (MSE) | Clark-West t |
+|---|---|---|---|---|---|---|---|
+| Walk-forward 2016-12-22 to 2026-09-17 (**decision**) | 2,446 | 1.339 | 1.500 | −12.1% | **−2.45** | +0.68 | +0.98 (p 0.16) |
+| From 2024-01-01 (reported) | 680 | 3.004 | 3.320 | −10.5% | −1.63 | −1.26 | −0.86 |
+
+**Verdict: fail.** The GEX model does not beat HAR-X; on the decisive test it is worse. As registered, the overlay and variance-risk-premium line stops here. Mincer-Zarnowitz: both forecasts have a slope of 0.91 and an R² of 0.60; adding GEX does not change them. Full-sample `gex_pct` coefficient: −31.7 %² (t −1.68).
+
+**Diagnostic** (computed after the result, explains it, decides nothing).
+* 25 HAR-X and 39 GEX forecasts were floored. All of them are in the calm of 2017: the variance-level OLS has a negative intercept and goes below zero when vol is very low. The GEX model goes lower still, because GEX was high then.
+* The rows with a floored forecast account for 61% of the QLIKE gap.
+* Without them, the GEX model is still worse (DM t −1.9). The median loss differential is zero, and the GEX model is better on 49.6% of sessions.
+
+**Reading.**
+* In-sample, the negative-gamma dummy adds about 2 vol points to the next session (section 13.1).
+* Out of sample, a linear GEX rank does not help forecast the variance. One explanation is that the in-sample effect is concentrated in the rare negative-GEX episodes (9% of sessions), which a linear rank describes badly. Another is that the effect does not survive estimation in real time.
+* Testing a log-HAR, or a dummy in place of the rank, would be a new trial chosen after seeing this result. If run, it must be labelled post-hoc.

@@ -61,6 +61,24 @@ st.caption("OLS of next-session Parkinson vol (annualized %) on the negative-reg
            "A significant GEX coefficient with an insignificant VIX-filter one means GEX carries vol information "
            "that the level and the memory of volatility do not.")
 
+st.markdown("**Vol forecast: does GEX improve a HAR-X forecast of next-session variance, out of sample?**")
+fc = ui.forecast_report(ui.backtest_data_stamp())
+if fc["passed"]:
+    st.success("The GEX model beats HAR-X on QLIKE (Diebold-Mariano, one-sided 5%). Next trial: a vol-targeting "
+               "overlay, to be specified and committed before it is run.", icon=":material/check:")
+else:
+    st.warning("The GEX model does not beat HAR-X out of sample (pre-registered test: Diebold-Mariano on QLIKE, "
+               "one-sided 5%). As registered, the overlay and variance-risk-premium line stops here.",
+               icon=":material/block:")
+ui.table(fc["table"].drop(columns=["start", "end"]),
+         {"qlike_base": "%.3f", "qlike_gex": "%.3f", "qlike_gain_pct": "%+.1f", "dm_t": "%+.2f", "dm_p": "%.3f",
+          "mse_dm_t": "%+.2f", "clark_west_t": "%+.2f", "clark_west_p": "%.3f"}, alt="Vol forecast trial")
+st.caption(f"Walk-forward from {fc['table']['start'].iloc[0]:%Y-%m-%d}: refit every 21 sessions, expanding window. "
+           "Positive t = the GEX model is better. Decision on the first row's dm_t only; MSE, Clark-West and the "
+           f"recent sessions are reported, not decisive. Forecasts floored at 1 %²: {fc['floored']['base']} (HAR-X), "
+           f"{fc['floored']['gex']} (GEX). {fc['n_trials']} trial(s) in data/backtest/forecast_trials.csv. "
+           "METHODOLOGY section 14.")
+
 # --------------------------------------------------------------------------- performance
 st.markdown(f"**Performance** · {sample}, {'close t+1' if lag == 2 else 'close t'} execution, costs ×{cost:.0f}")
 cols = {"strategy": "Strategy", "trial": "Trial", "sharpe": "Sharpe", "sharpe_se": "SE", "ci05": "CI 5%",
