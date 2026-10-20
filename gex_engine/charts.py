@@ -9,6 +9,8 @@ distinguishable under colour-vision deficiency.
 
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 
 SURFACE = "#fcfcfb"
@@ -79,13 +81,17 @@ def strikes(p: dict, view: str = "legs", height: int = 420) -> go.Figure:
     fig = go.Figure()
     hover = "Strike %{x}<br>%{fullData.name} %{y:,.3f} $bn<extra></extra>"
     if view == "legs":
-        fig.add_bar(x=k["strike"], y=_bn(k["call_gex"]), name="Call GEX", marker_color=POS, hovertemplate=hover)
-        fig.add_bar(x=k["strike"], y=_bn(k["put_gex"]), name="Put GEX", marker_color=NEG, hovertemplate=hover)
-        fig.update_layout(showlegend=True, barmode="relative")
+        fig.add_bar(x=k["strike"], y=_bn(k["call_gex"]), name="Calls (dealers long: +)", marker_color=POS,
+                    hovertemplate=hover)
+        fig.add_bar(x=k["strike"], y=_bn(k["put_gex"]), name="Puts (dealers short: −)", marker_color=NEG,
+                    hovertemplate=hover)
     else:
         fig.add_bar(x=k["strike"], y=_bn(k["net_gex"]), name="Net GEX", hovertemplate=hover,
                     marker_color=_by_sign(k["net_gex"]))
-    _layout(fig, "GEX by strike", "$bn of dealer delta per 1% move · spot solid, zero gamma dashed", height)
+    _layout(fig, "GEX by strike", "$bn of dealer delta per 1% move · spot solid, zero gamma dashed"
+            + ("" if view == "legs" else " · blue: net positive, red: net negative"), height)
+    if view == "legs":                    # after _layout, which hides legends by default
+        fig.update_layout(showlegend=True, barmode="relative")
     if not k["strike"]:
         return fig
     xmin, xmax = min(k["strike"]), max(k["strike"])
@@ -130,7 +136,7 @@ def signed_by_strike(p: dict, col: str, title: str, subtitle: str, height: int =
     fig = go.Figure()
     fig.add_bar(x=k["strike"], y=_bn(k[col]), marker_color=_by_sign(k[col]),
                 hovertemplate="Strike %{x}<br>%{y:,.3f} $bn<extra></extra>")
-    _layout(fig, title, subtitle, height)
+    _layout(fig, title, f"{subtitle} · blue positive, red negative · line: spot", height)
     if k["strike"]:
         fig.update_xaxes(range=[min(k["strike"]), max(k["strike"])])
         _vline(fig, p["spot"], "solid", "")
@@ -176,37 +182,53 @@ def flow(table, spot: float, height: int = 400) -> go.Figure:
     return fig
 
 
-def history(hist, height: int = 360) -> go.Figure:
-    """Spot against zero gamma (with its assumption band) over the archived days."""
+def history(hist, height: int = 400) -> go.Figure:
+    """Spot at each close, coloured by its gamma regime, against zero gamma and its band.
+
+    Time axis in dates (a long history stays legible). The band is drawn as a bar on each
+    zero-gamma point: a shaded area would bridge the days without a zero gamma.
+    """
+    h = hist.assign(date=pd.to_datetime(hist["date"]))
+    zg = h["zero_gamma"]
     fig = go.Figure()
-    fig.add_scatter(x=hist["date"], y=hist["zero_gamma_high"], mode="lines", line=dict(width=0),
-                    showlegend=False, hoverinfo="skip")
-    fig.add_scatter(x=hist["date"], y=hist["zero_gamma_low"], mode="lines", line=dict(width=0), fill="tonexty",
-                    fillcolor="rgba(195,194,183,0.45)", name="Zero gamma band", hoverinfo="skip")
-    fig.add_scatter(x=hist["date"], y=hist["zero_gamma"], mode="lines+markers", name="Zero gamma",
-                    line=dict(color=INK, width=1.5, dash="dash"), marker=dict(size=6))
-    fig.add_scatter(x=hist["date"], y=hist["spot"], mode="lines+markers", name="Spot",
-                    line=dict(color=INK, width=2), marker=dict(size=6))
-    _layout(fig, "Spot and zero gamma at each close", "shaded: zero gamma across assumptions", height)
-    fig.update_layout(showlegend=True)
-    fig.update_xaxes(tickformat=None, type="category")
+    fig.add_scatter(x=h["date"], y=zg, mode="lines+markers", name="Zero gamma (bar: range across assumptions)",
+                    line=dict(color=MUTED, width=1, dash="dash"), marker=dict(size=4, color=MUTED),
+                    error_y=dict(type="data", symmetric=False, array=h["zero_gamma_high"] - zg,
+                                 arrayminus=zg - h["zero_gamma_low"], color=AXIS, thickness=1.5, width=0),
+                    hovertemplate="%{x|%d %b %Y}<br>zero gamma %{y:,.0f}<extra></extra>")
+    fig.add_scatter(x=h["date"], y=h["spot"], mode="lines", line=dict(color=INK, width=1.5), name="Spot",
+                    hoverinfo="skip")
+    for sign, name, color in ((1, "Close in positive gamma", POS), (-1, "Close in negative gamma", NEG)):
+        sub = h.loc[np.sign(h["net_gex"]) == sign]
+        fig.add_scatter(x=sub["date"], y=sub["spot"], mode="markers", name=name,
+                        marker=dict(size=6, color=color, line=dict(color=SURFACE, width=1)),
+                        customdata=sub["net_gex"] / 1e9,
+                        hovertemplate="%{x|%d %b %Y}<br>spot %{y:,.0f}<br>net GEX %{customdata:+.1f} $bn<extra></extra>")
+    _layout(fig, "Spot and zero gamma at each close",
+            "a break in the dashed line: no zero gamma within ±6% of spot that day", height)
+    fig.update_layout(showlegend=True, margin=dict(b=72), legend=dict(y=-0.2))
+    fig.update_xaxes(type="date", tickformat="%d %b %y", nticks=10)
     fig.update_yaxes(tickformat=",.0f")
     return fig
 
 
-def study_scatter(d, y: str = "next_rv_gk", measure: str = "Garman-Klass", height: int = 360) -> go.Figure:
+def study_scatter(d, y: str = "next_rv_gk", measure: str = "Garman-Klass", height: int = 400) -> go.Figure:
     """Next-day realized vol against today's net GEX z-score, coloured by regime."""
     fig = go.Figure()
-    for flag, name, color in ((1.0, "Positive gamma", POS), (-1.0, "Negative gamma", NEG), (0.0, "Indeterminate", MUTED)):
+    for flag, name, color in ((1.0, "Positive gamma at t", POS), (-1.0, "Negative gamma at t", NEG),
+                              (0.0, "Indeterminate at t", MUTED)):
         sub = d.loc[d["regime"] == flag]
+        if sub.empty:
+            continue
         fig.add_scatter(x=sub["gex_z"], y=sub[y], mode="markers", name=name,
                         marker=dict(size=8, color=color, line=dict(color=SURFACE, width=1)),
                         customdata=sub["date"],
-                        hovertemplate="%{customdata}<br>GEX z %{x:.2f}<br>next-day RV %{y:.1f}%<extra></extra>")
-    _layout(fig, "Next-day realized vol vs net GEX z-score", f"{measure}, annualized % · z-score expanding, no look-ahead", height)
-    fig.update_layout(showlegend=True)
-    fig.update_xaxes(tickformat=".1f", title_text="net GEX z-score at t")
-    fig.update_yaxes(title_text="realized vol t+1, %")
+                        hovertemplate="%{customdata}<br>GEX z %{x:.2f}<br>next-day vol %{y:.1f}%<extra></extra>")
+    _layout(fig, "Next-day realized vol against today's net GEX",
+            f"{measure} vol of t+1, annualized % · net GEX of t as a z-score of its own past (no look-ahead)", height)
+    fig.update_layout(showlegend=True, margin=dict(b=88), legend=dict(y=-0.24))
+    fig.update_xaxes(tickformat=".1f", title_text="net GEX z-score at the close of t (left: lower gamma)")
+    fig.update_yaxes(title_text="realized vol of t+1, %")
     return fig
 
 

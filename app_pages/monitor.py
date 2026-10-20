@@ -1,7 +1,7 @@
 """Monitor: levels, profile, front expiry and data quality of the selected view.
 
-The body is a fragment re-run every REFRESH_SECONDS, so the page follows the source
-without a reload while the sidebar controls stay put.
+Read at the close, once or twice a day: the page does not poll the source; the sidebar's
+Refresh button downloads the current file.
 """
 
 import pandas as pd
@@ -105,8 +105,7 @@ def strike_table(p: dict, symbol: str) -> None:
              alt=f"{symbol} exposures by strike", height=420)
 
 
-@st.fragment(run_every=f"{config.REFRESH_SECONDS}s")
-def live() -> None:
+def body() -> None:
     ctx = ui.context()
     p, band = ctx.view(), ctx.band()
 
@@ -138,4 +137,4 @@ def live() -> None:
         strike_table(p, ctx.symbol)
 
 
-live()
+body()

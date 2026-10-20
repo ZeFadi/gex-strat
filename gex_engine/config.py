@@ -145,9 +145,9 @@ EOD_SAMPLE_URL = "https://historicaldata.net/file/options_sample_2022H2.zip"
 # (the quotes themselves are 15 minutes old).
 MAX_SESSION_LAG_MINUTES = 30
 
-# CBOE refreshes its delayed chains about every 15 seconds but the quotes themselves are
-# 15 minutes old; polling faster than once a minute buys nothing.
-REFRESH_SECONDS = 60
+# The app is read once or twice a day, at the close: it does not poll. A download is
+# reused for this long, and the sidebar's Refresh button forces a new one.
+DATA_CACHE_SECONDS = 600
 CBOE_URL = "https://cdn-api.cboe.com/api/global/delayed_quotes/options/{file}.json"
 CBOE_FILE = {"SPX": "_SPX", "NDX": "_NDX", "RUT": "_RUT", "XSP": "_XSP",
              "SPY": "SPY", "QQQ": "QQQ", "IWM": "IWM"}

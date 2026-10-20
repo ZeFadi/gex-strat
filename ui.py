@@ -28,10 +28,15 @@ def _last_good() -> dict:
     return {}
 
 
-@st.cache_data(ttl=config.REFRESH_SECONDS, show_spinner=False)
+@st.cache_data(ttl=config.DATA_CACHE_SECONDS, show_spinner=False)
 def _fetch_state(symbol: str) -> surface.MarketState:
-    """Download and price one symbol (cached for REFRESH_SECONDS)."""
+    """Download and price one symbol (cached for DATA_CACHE_SECONDS, or until Refresh)."""
     return surface.build(data.fetch(symbol))
+
+
+def refresh() -> None:
+    """Forget the cached downloads: the next read fetches the current CBOE file."""
+    _fetch_state.clear()
 
 
 def state(symbol: str) -> tuple[surface.MarketState | None, str | None]:

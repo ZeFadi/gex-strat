@@ -31,7 +31,7 @@ py -3.11 -m venv .venv
 
 With [uv](https://docs.astral.sh/uv/), `uv venv --python 3.11 .venv` then `uv pip install --python .venv/bin/python -r requirements.txt` (`.venv\Scripts\python` on Windows) does the same, faster.
 
-The source is CBOE's delayed chain: quotes are 15 minutes old in session; outside it, the data is the previous close. The sidebar states the as-of time, and the Monitor page refreshes itself every minute.
+The source is CBOE's delayed chain: quotes are 15 minutes old in session; outside it, the data is the previous close. The app is meant to be read at the end of the day (the close is final from 16:15 New York): it does not poll, keeps a download for 10 minutes, and the sidebar's Refresh button fetches the current file. The sidebar states the as-of time and the local time of the close.
 
 ## Pages
 
@@ -94,7 +94,7 @@ Two rules hold everywhere:
 
 | Data | Where | Refreshed by |
 |---|---|---|
-| CBOE delayed chains | downloaded live by the app | the app, every minute |
+| CBOE delayed chains | downloaded by the app | on opening, then on Refresh (kept 10 minutes) |
 | daily archive of closing chains | `data/raw/{symbol}/{date}.json.gz` (about 6 MB a day), plus SPX's pre-open republication `{date}_preopen.json.gz` (1.8 MB) | `cli.py archive` (scheduled) |
 | summary history of the archive | `data/history.csv` | the archive; `cli.py rebuild` recomputes it from `data/raw/` |
 | end-of-day option history (historicaldata.net: free sample 2022 H2, SPX and SPY; paid archive since 2002, same layout) | `data/vendor/historicaldata/day_by_date/` | **not in the repository** (licence: no redistribution): `cli.py eod-sample` |

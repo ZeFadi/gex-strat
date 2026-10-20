@@ -51,7 +51,7 @@ else:
                "regime is not profitable here.", icon=":material/block:")
 
 st.markdown("**Mechanism: does negative gamma predict next-day realized vol beyond VIX and today's vol?**")
-mech = pd.DataFrame([{"regime": r, "controls": "VIX, RV, HAR 5/22, leverage" if c == "har" else "VIX, RV",
+mech = pd.DataFrame([{"Regime": r, "Controls": "VIX, RV, HAR 5/22, leverage" if c == "har" else "VIX, RV",
                       "Extra vol pts next day": m.set_index("term").loc["negative_gamma", "coef"],
                       "t (Newey-West, 20 lags)": m.set_index("term").loc["negative_gamma", "t_nw"]}
                      for (r, c), m in rep["mechanism"].items()])
@@ -70,11 +70,15 @@ else:
     st.warning("The GEX model does not beat HAR-X out of sample (pre-registered test: Diebold-Mariano on QLIKE, "
                "one-sided 5%). As registered, the overlay and variance-risk-premium line stops here.",
                icon=":material/block:")
-ui.table(fc["table"].drop(columns=["start", "end"]),
-         {"qlike_base": "%.3f", "qlike_gex": "%.3f", "qlike_gain_pct": "%+.1f", "dm_t": "%+.2f", "dm_p": "%.3f",
-          "mse_dm_t": "%+.2f", "clark_west_t": "%+.2f", "clark_west_p": "%.3f"}, alt="Vol forecast trial")
+FORECAST_COLUMNS = {"sample": "Sample", "n": "Sessions", "qlike_base": "Loss HAR-X", "qlike_gex": "Loss + GEX",
+                    "qlike_gain_pct": "Gain %", "dm_t": "DM t (decision)", "dm_p": "p", "mse_dm_t": "DM t (MSE)",
+                    "clark_west_t": "Clark-West t", "clark_west_p": "Clark-West p"}
+ui.table(fc["table"].rename(columns=FORECAST_COLUMNS)[list(FORECAST_COLUMNS.values())],
+         {"Loss HAR-X": "%.3f", "Loss + GEX": "%.3f", "Gain %": "%+.1f", "DM t (decision)": "%+.2f", "p": "%.3f",
+          "DM t (MSE)": "%+.2f", "Clark-West t": "%+.2f", "Clark-West p": "%.3f"}, alt="Vol forecast trial")
 st.caption(f"Walk-forward from {fc['table']['start'].iloc[0]:%Y-%m-%d}: refit every 21 sessions, expanding window. "
-           "Positive t = the GEX model is better. Decision on the first row's dm_t only; MSE, Clark-West and the "
+           "Loss: QLIKE, lower is better; Gain %: loss saved by adding GEX. Positive t = the GEX model is better. "
+           "Decision on the first row's DM t only; MSE, Clark-West and the "
            f"recent sessions are reported, not decisive. Forecasts floored at 1 %²: {fc['floored']['base']} (HAR-X), "
            f"{fc['floored']['gex']} (GEX). {fc['n_trials']} trial(s) in data/backtest/forecast_trials.csv. "
            "METHODOLOGY section 14.")
@@ -87,7 +91,8 @@ cols = {"strategy": "Strategy", "trial": "Trial", "sharpe": "Sharpe", "sharpe_se
 shown = view[list(cols)].rename(columns=cols).copy()
 for c in ("Return %", "Max DD %", "Worst day %", "Costs %/yr"):
     shown[c] = 100 * shown[c]
-ui.table(shown, {"Sharpe": "%.2f", "SE": "%.2f", "CI 5%": "%.2f", "CI 95%": "%.2f", "Deflated SR": "percent",
+shown["Deflated SR"] = shown["Deflated SR"].map(lambda x: "—" if pd.isna(x) else f"{100 * x:.1f}%")   # benchmarks: none
+ui.table(shown, {"Sharpe": "%.2f", "SE": "%.2f", "CI 5%": "%.2f", "CI 95%": "%.2f",
                  "t (NW)": "%+.2f", "Return %": "%+.1f", "Max DD %": "%.1f", "Worst day %": "%.1f",
                  "Turnover": "%.0f", "Costs %/yr": "%.2f"}, alt="Backtest performance", height=36 * (len(shown) + 1) + 2)
 st.caption("Trials: the two GEX regimes; benchmarks: always-on and VIX filter. CI = circular block bootstrap; "
@@ -105,13 +110,16 @@ ui.chart(charts.equity(curves, f"{rule}: cumulative net return", "% of capital, 
 left, right = st.columns(2, gap="large")
 with left:
     st.markdown("**Placebo** (regime shifted in time, primary execution)")
-    ui.table(rep["placebo"], {"actual": "%.2f", "p_better": "%.2f", "p_worse": "%.2f", "placebo_median": "%.2f"},
-             alt="Placebo test")
-    st.caption("Share of time-shifted regimes doing at least as well (p_better) or at most as well (p_worse). "
-               "Small p_better: the timing adds value. Small p_worse: the timing is informative but the rule is on "
+    ui.table(rep["placebo"].rename(columns={"strategy": "Strategy", "actual": "Sharpe", "p_better": "p better",
+                                            "p_worse": "p worse", "placebo_median": "Placebo median"}),
+             {"Sharpe": "%.2f", "p better": "%.2f", "p worse": "%.2f", "Placebo median": "%.2f"}, alt="Placebo test")
+    st.caption("Share of time-shifted regimes doing at least as well (p better) or at most as well (p worse). "
+               "Small p better: the timing adds value. Small p worse: the timing is informative but the rule is on "
                "the wrong side of it. Neither small: the timing adds nothing.")
 with right:
     st.markdown("**Regime episodes** (negative-regime runs)")
-    ui.table(rep["episodes"], {}, alt="Regime episodes")
+    ui.table(rep["episodes"].rename(columns={"regime": "Regime", "sample": "Sample", "negative_days": "Negative days",
+                                             "episodes": "Episodes", "longest": "Longest (sessions)"}),
+             {}, alt="Regime episodes")
     st.caption(f"{rep['n_trials']} trials logged in data/backtest/trials.csv. Sample "
                f"{rep['start']:%Y-%m-%d} to {rep['end']:%Y-%m-%d}; out-of-sample from {config.OOS_START}.")

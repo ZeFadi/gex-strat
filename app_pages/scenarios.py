@@ -25,6 +25,8 @@ ui.table(pd.DataFrame({
     unit: t["hedge_flow_hedge_units"],
 }), {"Hedge flow, $bn": "%+.2f", unit: "%+,.0f"}, alt="Dealer hedge flows by scenario",
     height=36 * (len(t) + 1) + 2)
+st.caption("What dealers must trade to stay delta-neutral if the shock happens now: + they buy, − they sell. "
+           "A flow against the shock (buy after a fall) damps the move; with it, it adds to the move.")
 
 st.markdown("**Zero gamma under alternative assumptions**")
 band = ctx.band()
